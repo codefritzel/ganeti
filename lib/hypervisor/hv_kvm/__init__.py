@@ -1384,6 +1384,9 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     if hvp[constants.HV_CPU_SOCKETS]:
       smp_list.append("sockets=%s" % hvp[constants.HV_CPU_SOCKETS])
 
+    # for tests
+    smp_list.append("maxcpus=%s", instance.beparams[constants.BE_VCPUS] * 2)
+
     kvm_cmd.extend(["-smp", ",".join(smp_list)])
 
     kvm_cmd.extend(["-pidfile", pidfile])
