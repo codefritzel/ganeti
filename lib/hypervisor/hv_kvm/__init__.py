@@ -616,6 +616,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
   _NETDEV_RE = re.compile(r"^-netdev\s", re.M)
   _DISPLAY_RE = re.compile(r"^-display\s", re.M)
   _MACHINE_RE = re.compile(r"^-machine\s", re.M)
+  _AUDIO_RE = re.compile(r"^-audio\s", re.M)
   _DEVICE_DRIVER_SUPPORTED = \
     staticmethod(lambda drv, devlist:
                  re.compile(r"^name \"%s\"" % drv, re.M).search(devlist))
@@ -1362,8 +1363,19 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     # As requested by music lovers
     if hvp[constants.HV_SOUNDHW]:
-      soundhw = hvp[constants.HV_SOUNDHW]
-      kvm_cmd.extend(["-soundhw", soundhw])
+      # use -audio instead of -soundhw if available
+      # soundhw was removed in qemu-7.1
+      if self._AUDIO_RE.search(kvmhelp):
+        audio_list = [
+          "driver=spice",
+          f"model={hvp[constants.HV_SOUNDHW]}"
+        ]
+
+        kvm_cmd.extend(["-audio", ",".join(audio_list)])
+      else:
+        kvm_cmd.extend([
+          "-soundhw", hvp[constants.HV_SOUNDHW]
+        ])
 
     if hvp[constants.HV_DISK_TYPE] in constants.HT_SCSI_DEVICE_TYPES:
       # In case a SCSI disk is given, QEMU adds a SCSI contorller
