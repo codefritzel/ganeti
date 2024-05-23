@@ -43,6 +43,7 @@ import pwd
 import shlex
 import shutil
 import urllib.request, urllib.error, urllib.parse
+from typing import List
 from bitarray import bitarray
 try:
   import psutil   # pylint: disable=F0401
@@ -1354,8 +1355,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     if hvp[constants.HV_CPU_SOCKETS]:
       smp_list.append("sockets=%s" % hvp[constants.HV_CPU_SOCKETS])
 
-    # for tests
-    smp_list.append("maxcpus=%s", instance.beparams[constants.BE_VCPUS] * 2)
+    # for CPU Hotplug
+    smp_list.append(f"maxcpus={instance.beparams[constants.BE_VCPUS] * 2}")
 
     kvm_cmd.extend(["-smp", ",".join(smp_list)])
 
@@ -2370,6 +2371,51 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       # putting it back in the same bus and slot
       device.hvinfo = self.HotDelDevice(instance, dev_type, device, _, seq)
       self.HotAddDevice(instance, dev_type, device, _, seq)
+
+
+  def HotModvCPUs(self, instance, current, new):
+    """ Hot modify the new amount of vCPUs.
+
+    """
+    assert current != new
+
+    diff = abs(current - new)
+    if new > current:
+      self.HotAddvCPUs(instance, diff)
+    elif new < current:
+      self.HotRemovevCPUs(instance, diff)
+
+  def VerifyHotplugvCPUsSupported(self, instance, current, new):
+    """Verifies that hotplug is supported.
+
+    Given the current and the new amount of vCPUs if hotplug is
+    actually supported.
+    """
+
+    diff = abs(current, new)
+
+    # KVM supports vCPU add & remove online
+    if new > current:
+      # add
+      # Check the amount of vcpus are available
+      if len(self.GetHotpluggablevCPUs(instance)) < diff:
+        raise errors.HotplugError("Not enough hotpluggable vCPUs are available.")
+
+    elif new < current:
+      pass
+
+  def HotAddvCPUs(self, instance, amount: int):
+    pass
+
+
+  def HotRemovevCPUs(self, instance, amount: int):
+    pass
+
+
+  @_with_qmp
+  def GetHotpluggablevCPUs(self, instance) -> List:
+    pass
+
 
   @classmethod
   def _ParseKVMVersion(cls, text):

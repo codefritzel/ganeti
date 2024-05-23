@@ -3217,6 +3217,27 @@ def HotplugDevice(instance, action, dev_type, device, extra, seq):
   return fn(instance, dev_type, device, extra, seq)
 
 
+def HotplugvCPUs(instance, current: int, new: int):
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
+
+  try:
+    hyper.VerifyVCPUHotplugSupport(instance, current, new)
+  except errors.HotplugError as err:
+    _Fail("Hotplug of vCPUs is not supported: %s", err)
+
+  return hyper.HotModvCPUs(instance, current, new)
+
+
+def HotplugvCPUsSupported(instance, current, new):
+  """Checks if vCPUs hotplug is generally supported.
+
+  """
+  hyper = hypervisor.GetHypervisor(instance.hypervisor)
+  try:
+    hyper.HotplugvCPUsSupported(instance, current, new)
+  except errors.HotplugError as err:
+    _Fail("Hotplug of vCPUs is not supported: %s", err)
+
 def HotplugSupported(instance):
   """Checks if hotplug is generally supported.
 
