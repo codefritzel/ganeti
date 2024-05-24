@@ -2377,7 +2377,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     """ Hot modify the new amount of vCPUs.
 
     """
-    current_vcpus = len(self.qmp.Execute("query-cpus"))
+    current_vcpus = self.GetCurrentvCPUs(instance)
 
     diff = abs(current_vcpus - amount)
     if amount > current_vcpus:
@@ -2391,36 +2391,52 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     Given the current and the new amount of vCPUs if hotplug is
     actually supported.
     """
-    current_vcpus = len(self.qmp.Execute("query-cpus"))
+    current_vcpus = self.GetCurrentvCPUs(instance)
 
     diff = abs(current_vcpus - amount)
 
-    self.GetHotpluggedvCPUs(instance)
+    pluggable_count = len(self.GetHotpluggablevCPUs(instance))
+    plugged_count = len(self.GetHotpluggedvCPUs(instance))
 
     # KVM supports vCPU add & remove online
     if amount > current_vcpus:
       # add
       # Check the amount of vcpus are available
-      plugable_count = len(self.GetHotpluggablevCPUs(instance))
-      if plugable_count < diff:
-        raise errors.HotplugError(f"Not enough hotpluggable vCPUs are available. Plugable: {plugable_count}")
+      if diff > pluggable_count:
+        raise errors.HotplugError(f"Not enough hotpluggable vCPUs are available. Pluggable: {pluggable_count}")
     elif amount < current_vcpus:
       # only hotplugged vcpus can unplugged
-      plugged_count = len(self.GetHotpluggedvCPUs(instance))
-      if plugged_count >= diff:
-        raise errors.HotplugError(f"Not enough hotplugged vCPUs that can unplugged. Plugged: {plugged_count}")
+      if diff > plugged_count:
+        raise errors.HotplugError(f"Not enough hotplugged vCPUs that can be unplugged. Plugged: {plugged_count}")
 
+  @_with_qmp
   def HotAddvCPUs(self, instance, amount: int):
-    hotplugable_cpus = self.GetHotpluggablevCPUs(instance)
+    hotpluggable_cpus = self.GetHotpluggablevCPUs(instance)
 
-    to_plugs = hotplugable_cpus[:amount]
+    to_add = hotpluggable_cpus[:amount]
 
-    pass
+    for cpu in to_add:
+      self.qmp.HotAddvCPU(cpu)
 
 
   def HotRemovevCPUs(self, instance, amount: int):
-    pass
+    hotplugged_cpus = self.GetHotpluggedvCPUs(instance)
 
+    to_add = hotplugged_cpus[-amount:]
+
+    for cpu in to_add:
+      cpu_id = cpu['qom-path'].replace('/machine/peripheral/', '')
+
+      self.qmp.HotDelvCPU(cpu_id)
+
+
+  @_with_qmp
+  def GetCurrentvCPUs(self, instance):
+    """
+    Get current CPU count with hot cpus.
+    """
+
+    return len(self.qmp.GetCpuInformation())
 
   @_with_qmp
   def GetHotpluggablevCPUs(self, instance) -> List:
@@ -2440,7 +2456,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     plugged = []
     for cpu in hotplug_info:
-      if "qom-path" in cpu and "/machine/peripheral" in cpu["qom-path"]:
+      if "qom-path" in cpu and cpu["qom-path"] != "/machine/unattached/device[0]":
         plugged.append(cpu)
 
     return plugged

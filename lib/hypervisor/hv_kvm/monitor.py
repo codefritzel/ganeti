@@ -40,6 +40,7 @@ import socket
 import io
 import logging
 
+from typing import Dict
 from bitarray import bitarray
 
 from ganeti import errors
@@ -623,6 +624,24 @@ class QmpConnection(MonitorSocket):
     bus = pci[0]
     devices = bus["devices"]
     return devices
+
+
+  @_ensure_connection
+  def HotAddvCPU(self, cpu: Dict) -> None:
+    # cpu = Dict object von query-cpus...
+    # device_add id=cpu-2 driver=IvyBridge-IBRS-x86_64-cpu socket-id=1 core-id=0 thread-id=0
+
+    arguments = cpu['props'].copy()
+    arguments["id"] = f"cpu-{cpu['props']['socket-id']}"
+    arguments["driver"] = cpu['type']
+
+    self.Execute("device_add", arguments)
+
+
+  @_ensure_connection
+  def HotDelvCPU(self, cpu_id: str) -> None:
+    self.Execute("device_del", {"id": cpu_id})
+
 
   def _HasPCIDevice(self, devid):
     """Check if a specific device ID exists on the PCI bus.

@@ -1920,8 +1920,8 @@ class LUInstanceSetParams(LogicalUnit):
                        post_add_fn=self._PostAddDisk)
 
     # Apply Hotplug vCPUs if vcpu is defined and changed
-    if self.be_new[constants.BE_VCPUS] and self.be_new[constants.BE_VCPUS] != self.instance.beparams[constants.BE_VCPUS]:
-      self._HotplugVCPUs(self.instance.beparams[constants.BE_VCPUS], self.be_new[constants.BE_VCPUS])
+    if self.be_new[constants.BE_VCPUS]:
+      self._HotplugVCPUs(self.be_new[constants.BE_VCPUS])
 
     if self.op.disk_template:
       if __debug__:
