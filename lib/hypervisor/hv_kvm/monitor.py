@@ -825,6 +825,15 @@ class QmpConnection(MonitorSocket):
 
     return self.Execute("query-cpus-fast")
 
+
+  @_ensure_connection
+  def GetHotpluggableCPUs(self):
+    """ Get CPU type which could be plugged
+        uses the query-hotpluggable-cpus which does not interrupt the guest
+    """
+
+    return self.Execute("query-hotpluggable-cpus")
+
   @_ensure_connection
   def GetMigrationStatus(self):
     """Retrieve the current migration status

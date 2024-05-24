@@ -1581,12 +1581,12 @@ class LUInstanceSetParams(LogicalUnit):
     return msg
 
 
-  def _HotplugVCPUs(self, current, new):
+  def _HotplugVCPUs(self, new):
     if self.op.hotplug:
-      self.LogInfo(f"Trying to hotplug vCPUs from {current} to {new} ...")
+      self.LogInfo(f"Trying to hotplug vCPUs to {new} ...")
       msg = "vcpu-hotplug:"
       result = self.rpc.call_hotplug_vcpus(self.instance.primary_node,
-                                            self.instance, current, new)
+                                            self.instance, new)
 
       if result.fail_msg:
         self.LogWarning(f"Could not hotplug vcpus: { result.fail_msg}")
@@ -1900,9 +1900,6 @@ class LUInstanceSetParams(LogicalUnit):
 
     result = []
 
-    if self.be_inst[constants.BE_VCPUS]:
-      feedback_fn(f"New {self.be_new[constants.BE_VCPUS]} Inst: {self.instance.beparams[constants.BE_VCPUS]}")
-
     # New primary node
     if self.op.pnode_uuid:
       self.instance.primary_node = self.op.pnode_uuid
@@ -1922,8 +1919,9 @@ class LUInstanceSetParams(LogicalUnit):
                        self._RemoveDisk, self._DetachDisk,
                        post_add_fn=self._PostAddDisk)
 
-    # Apply Hotplug vCPUs
-    self._HotplugVCPUs(self.instance.beparams[constants.BE_VCPUS], self.be_new[constants.BE_VCPUS])
+    # Apply Hotplug vCPUs if vcpu is defined and changed
+    if self.be_new[constants.BE_VCPUS] and self.be_new[constants.BE_VCPUS] != self.instance.beparams[constants.BE_VCPUS]:
+      self._HotplugVCPUs(self.instance.beparams[constants.BE_VCPUS], self.be_new[constants.BE_VCPUS])
 
     if self.op.disk_template:
       if __debug__:
