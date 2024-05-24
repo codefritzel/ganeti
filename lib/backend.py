@@ -3238,6 +3238,7 @@ def HotplugvCPUsSupported(instance, amount):
   except errors.HotplugError as err:
     _Fail("Hotplug of vCPUs is not supported: %s", err)
 
+
 def HotplugSupported(instance):
   """Checks if hotplug is generally supported.
 
