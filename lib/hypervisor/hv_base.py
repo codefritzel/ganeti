@@ -782,12 +782,12 @@ class BaseHypervisor(object):
     """
     raise errors.HotplugError("Hotplug is not supported by this hypervisor")
 
-  def HotModvCPUs(self, instance, current, new):
+  def HotModvCPUs(self, instance, amount):
     """ Hot modify the new amount of vCPUs.
 
     """
 
-  def VerifyHotplugvCPUsSupported(self, instance, current, new):
+  def VerifyvCPUHotplugSupport(self, instance, amount):
     """Verifies that hotplug is supported.
 
     Given the current and the new amount of vCPUs if hotplug is
@@ -796,7 +796,7 @@ class BaseHypervisor(object):
 
     raise errors.HotplugError("Hotplug of vCPUs is not supported.")
 
-  def HotplugvCPUsSupported(self, instance):
+  def HotplugvCPUsSupported(self, instance, amount):
     """Checks if hot mofify is supported.
 
     By default is not. Currently only KVM hypervisor supports it.

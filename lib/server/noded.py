@@ -665,18 +665,18 @@ class NodeRequestHandler(http.server.HttpServerHandler):
     """vCPU Hotplug to a running instance.
 
     """
-    (idict, current, new) = params
+    (idict, amount) = params
     instance = objects.Instance.FromDict(idict)
-    return backend.HotplugvCPUs(instance, current, new)
+    return backend.HotplugvCPUs(instance, amount)
 
   @staticmethod
   def perspective_hotplug_vcpus_supported(params):
     """Verify vCPU Hotplug to a running instance.
 
     """
-    (idict, current, new) = params
+    (idict, amount) = params
     instance = objects.Instance.FromDict(idict)
-    return backend.HotplugvCPUsSupported(instance, current, new)
+    return backend.HotplugvCPUsSupported(instance, amount)
 
   @staticmethod
   def perspective_hotplug_supported(params):

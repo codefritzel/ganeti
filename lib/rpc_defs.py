@@ -298,13 +298,11 @@ _INSTANCE_CALLS = [
     ], None, None, "Installs an operative system onto an instance"),
   ("hotplug_vcpus", SINGLE, None, constants.RPC_TMO_NORMAL, [
     ("instance", ED_INST_DICT, "Instance object"),
-    ("current", None, "Current vcpu amount"),
-    ("new", None, "New vcpu amount"),
+    ("amount", None, "New vcpu amount"),
     ], None, None, "Hotplug VCPUs"),
   ("hotplug_vcpus_supported", SINGLE, None, constants.RPC_TMO_NORMAL, [
     ("instance", ED_INST_DICT, "Instance object"),
-    ("current", None, "Current vcpu amount"),
-    ("new", None, "New vcpu amount"),
+    ("amount", None, "New vcpu amount"),
     ], None, None, "Hotplug VCPUs"),
   ("hotplug_device", SINGLE, None, constants.RPC_TMO_NORMAL, [
     ("instance", ED_INST_DICT, "Instance object"),
