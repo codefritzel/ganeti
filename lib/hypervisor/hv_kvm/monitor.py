@@ -40,7 +40,7 @@ import socket
 import io
 import logging
 
-from typing import Dict
+from typing import Dict, List
 from bitarray import bitarray
 
 from ganeti import errors
@@ -959,3 +959,63 @@ class QmpConnection(MonitorSocket):
       # succeeded, the whole hot-add action will fail and the runtime file will
       # not be updated which will make the instance non migrate-able
       logging.info("Removing fdset with id %s failed: %s", fdset, err)
+
+class QgaConnection(QmpConnection):
+  _SOCKET_TIMEOUT = 20
+  _MESSAGE_END_TOKEN = b"\n"
+
+  def connect(self):
+    """Connects to the QMP monitor.
+
+    Connects to the UNIX socket and makes sure that we can actually send and
+    receive data to the kvm instance via QMP.
+
+    @raise errors.HypervisorError: when there are communication errors
+    @raise errors.ProgrammerError: when there are data serialization errors
+
+    """
+    super(QmpConnection, self).connect()
+
+    self._buf = b""
+
+    sync_test = 123
+
+    sync = self.Execute("guest-sync", {"id": sync_test})
+    if sync != sync_test:
+      raise errors.HypervisorError("kvm: QGA communication error (guest sync"
+                                     " failed)")
+
+
+  def Execute(self, command, arguments=None):
+    """Executes a QMP command and returns the response of the server.
+
+    @type command: str
+    @param command: the command to execute
+    @type arguments: dict
+    @param arguments: dictionary of arguments to be passed to the command
+    @rtype: dict
+    @return: dictionary representing the received JSON object
+    @raise errors.HypervisorError: when there are communication errors
+    @raise errors.ProgrammerError: when there are data serialization errors
+
+    """
+    self._check_connection()
+
+    message = QmpMessage({self._EXECUTE_KEY: command})
+    if arguments:
+      message[self._ARGUMENTS_KEY] = arguments
+    self._Send(message)
+
+    ret = self._GetResponse(command)
+
+    return ret
+
+
+  @_ensure_connection
+  def GetvCPUs(self):
+    return self.Execute("guest-get-vcpus")
+
+
+  @_ensure_connection
+  def SetvCPUs(self, vcpus: List[Dict]):
+    self.Execute("guest-set-vcpus", {"vcpus": vcpus})

@@ -71,7 +71,7 @@ from ganeti.hypervisor import hv_base
 from ganeti.utils import wrapper as utils_wrapper
 
 from ganeti.hypervisor.hv_kvm.monitor import QmpConnection, QmpMessage, \
-                                             MonitorSocket
+                                             MonitorSocket, QgaConnection
 from ganeti.hypervisor.hv_kvm.netdev import OpenTap
 
 from ganeti.hypervisor.hv_kvm.validation import check_boot_parameters, \
@@ -180,6 +180,23 @@ def _with_qmp(fn):
                            " a valid ganeti instance object"))
       filename = self._InstanceQmpMonitor(instance.name)# pylint: disable=W0212
       self.qmp = QmpConnection(filename)
+    return fn(self, *args, **kwargs)
+  return wrapper
+
+def _with_qga(fn):
+  """Wrapper used on qemu guest agent related methods"""
+  def wrapper(self, *args, **kwargs):
+    """Create a QGAConnection and run the wrapped method"""
+    if not getattr(self, "qga", None):
+      for arg in args:
+        if isinstance(arg, objects.Instance):
+          instance = arg
+          break
+      else:
+        raise(RuntimeError("QGA decorator could not find"
+                           " a valid ganeti instance object"))
+      filename = self._InstanceQemuGuestAgentMonitor(instance.name)# pylint: disable=W0212
+      self.qga = QgaConnection(filename)
     return fn(self, *args, **kwargs)
   return wrapper
 
@@ -678,6 +695,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     dirs = [(dname, constants.RUN_DIRS_MODE) for dname in self._DIRS]
     utils.EnsureDirs(dirs)
     self.qmp = None
+    self.qga = None
 
   @staticmethod
   def VersionsSafeForMigration(src, target):
@@ -2418,6 +2436,9 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     for cpu in to_add:
       self.qmp.HotAddvCPU(cpu)
 
+    # make vcpus online qith the guest agent
+    self.EnablevCPUs(instance)
+
 
   def HotRemovevCPUs(self, instance, amount: int):
     hotplugged_cpus = self.GetHotpluggedvCPUs(instance)
@@ -2460,6 +2481,21 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         plugged.append(cpu)
 
     return plugged
+
+
+  @_with_qga
+  def EnablevCPUs(self, instance):
+
+    vcpus = self.qga.GetvCPUs()
+
+    to_online = []
+
+    for vcpu in vcpus:
+      if not vcpu['online']:
+        vcpu['online'] = True
+        to_online.append(vcpu)
+
+    self.qga.SetvCPUs(to_online)
 
 
   @classmethod
