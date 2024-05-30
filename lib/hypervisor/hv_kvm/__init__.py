@@ -200,7 +200,7 @@ def _with_qga(fn):
         raise(RuntimeError("QGA decorator could not find"
                            " a valid ganeti instance object"))
       filename = self._InstanceQemuGuestAgentMonitor(instance.name)# pylint: disable=W0212
-      self.qga = QgaConnection(filename)
+      self.qga = QgaConnection(filename, 5) # Timeout of 5 secods
     return fn(self, *args, **kwargs)
   return wrapper
 
@@ -2376,6 +2376,9 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     diff = abs(current_vcpus - amount)
     if amount > current_vcpus:
       self.HotAddvCPUs(instance, diff)
+
+      # make vcpus online qith the guest agent
+      self.EnablevCPUs(instance)
     elif amount < current_vcpus:
       self.HotRemovevCPUs(instance, diff)
 
@@ -2403,6 +2406,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       if diff > plugged_count:
         raise errors.HotplugError(f"Not enough hotplugged vCPUs that can be unplugged. Plugged: {plugged_count}")
 
+
   @_with_qmp
   def HotAddvCPUs(self, instance, amount: int):
     hotpluggable_cpus = self.GetHotpluggablevCPUs(instance)
@@ -2412,8 +2416,6 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     for cpu in to_add:
       self.qmp.HotAddvCPU(cpu)
 
-    # make vcpus online qith the guest agent
-    self.EnablevCPUs(instance)
 
 
   def HotRemovevCPUs(self, instance, amount: int):
