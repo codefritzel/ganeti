@@ -88,6 +88,8 @@ from ganeti.hypervisor.hv_kvm.validation import check_boot_parameters, \
 
 import ganeti.hypervisor.hv_kvm.kvm_utils as kvm_utils
 
+from ganeti.hypervisor.hv_kvm.types import QMPVCPUItem
+
 _KVM_NETWORK_SCRIPT = pathutils.CONF_DIR + "/kvm-vif-bridge"
 _KVM_START_PAUSED_FLAG = "-S"
 
@@ -97,6 +99,7 @@ _KVM_START_PAUSED_FLAG = "-S"
 # (L{objects.Disk}, link_name, uri)
 _KVM_NICS_RUNTIME_INDEX = 1
 _KVM_DISKS_RUNTIME_INDEX = 3
+_KVM_VCPU_RUNTIME_INDEX = 4
 _DEVICE_RUNTIME_INDEX = {
   constants.HOTPLUG_TARGET_DISK: _KVM_DISKS_RUNTIME_INDEX,
   constants.HOTPLUG_TARGET_NIC: _KVM_NICS_RUNTIME_INDEX
@@ -371,6 +374,11 @@ def _UpgradeSerializedRuntime(serialized_runtime):
   else:
     serialized_disks = []
 
+  if len(loaded_runtime) >= 5:
+    kvm_vcpus = loaded_runtime[4]
+  else:
+    kvm_vcpus = []
+
   def update_hvinfo(dev, dev_type):
     """ Remove deprecated pci slot and substitute it with hvinfo """
     if "hvinfo" not in dev:
@@ -469,7 +477,7 @@ def _UpgradeSerializedRuntime(serialized_runtime):
         constants.HT_VALID_DISCARD_TYPES:
       hvparams[constants.HV_DISK_DISCARD] = constants.HT_DISCARD_IGNORE
 
-  return kvm_cmd, serialized_nics, hvparams, serialized_disks
+  return kvm_cmd, serialized_nics, hvparams, serialized_disks, kvm_vcpus
 
 
 def _AnalyzeSerializedRuntime(serialized_runtime):
@@ -481,13 +489,13 @@ def _AnalyzeSerializedRuntime(serialized_runtime):
   @rtype: tuple
 
   """
-  kvm_cmd, serialized_nics, hvparams, serialized_disks = \
+  kvm_cmd, serialized_nics, hvparams, serialized_disks, kvm_vcpus = \
     _UpgradeSerializedRuntime(serialized_runtime)
   kvm_nics = [objects.NIC.FromDict(snic) for snic in serialized_nics]
   kvm_disks = [(objects.Disk.FromDict(sdisk), link, uri)
                for sdisk, link, uri in serialized_disks]
 
-  return (kvm_cmd, kvm_nics, hvparams, kvm_disks)
+  return (kvm_cmd, kvm_nics, hvparams, kvm_disks, kvm_vcpus)
 
 
 class HeadRequest(urllib.request.Request):
@@ -1752,7 +1760,9 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     hvparams = hvp
 
-    return (kvm_cmd, kvm_nics, hvparams, kvm_disks)
+    kvm_vcpus = []
+
+    return (kvm_cmd, kvm_nics, hvparams, kvm_disks, kvm_vcpus)
 
   def _WriteKVMRuntime(self, instance_name, data):
     """Write an instance's KVM runtime
@@ -1778,13 +1788,16 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     """Save an instance's KVM runtime
 
     """
-    kvm_cmd, kvm_nics, hvparams, kvm_disks = kvm_runtime
+    kvm_cmd, kvm_nics, hvparams, kvm_disks, kvm_vcpus = kvm_runtime
 
     serialized_nics = [nic.ToDict() for nic in kvm_nics]
     serialized_disks = [(blk.ToDict(), link, uri)
                         for blk, link, uri in kvm_disks]
+
+    serialized_vcpus = kvm_vcpus
     serialized_form = serializer.Dump((kvm_cmd, serialized_nics, hvparams,
-                                      serialized_disks))
+                                      serialized_disks, serialized_vcpus))
+
 
     self._WriteKVMRuntime(instance.name, serialized_form)
 
@@ -1941,7 +1954,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     temp_files = []
 
-    kvm_cmd, kvm_nics, up_hvp, kvm_disks = kvm_runtime
+    kvm_cmd, kvm_nics, up_hvp, kvm_disks, kvm_vcpus = kvm_runtime
     # the first element of kvm_cmd is always the path to the kvm binary
     kvm_path = kvm_cmd[0]
     up_hvp = objects.FillDict(conf_hvp, up_hvp)
@@ -2054,6 +2067,18 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     start_kvm_paused = not (_KVM_START_PAUSED_FLAG in kvm_cmd) and not incoming
     if start_kvm_paused:
       kvm_cmd.extend([_KVM_START_PAUSED_FLAG])
+
+    # if vcpus was hotplugged
+    # for vcpu in kvm_vcpus:
+    #   device_format = "{type},socket-id={socket_id},core-id={core_id},thread-id={thread_id},id={cpu_id},hotplugged=on"
+    #   dev_str = device_format.format(type=vcpu['type'],
+    #                                  core_id=vcpu['props']['core-id'],
+    #                                  socket_id=vcpu['props']['socket-id'],
+    #                                  thread_id=vcpu['props']['thread-id'],
+    #                                  cpu_id=vcpu['id'])
+
+    #   kvm_cmd.extend(['-device', dev_str])
+    #   logging.info(f"VCPUS: {vcpu}")
 
     # Note: CPU pinning is using up_hvp since changes take effect
     # during instance startup anyway, and to avoid problems when soft
@@ -2377,7 +2402,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     if amount > current_vcpus:
       self.HotAddvCPUs(instance, diff)
 
-      # make vcpus online qith the guest agent
+      # make vcpus online with the guest agent
       self.EnablevCPUs(instance)
     elif amount < current_vcpus:
       self.HotRemovevCPUs(instance, diff)
@@ -2413,21 +2438,41 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     to_add = hotpluggable_cpus[:amount]
 
-    for cpu in to_add:
-      self.qmp.HotAddvCPU(cpu)
+    logging.warning(f"hotpluggable_cpus: {hotpluggable_cpus}")
+    logging.warning(f"To-Add: {to_add}")
 
+    runtime = self._LoadKVMRuntime(instance)
+
+    for qmp_vcpu in to_add:
+      vcpu = QMPVCPUItem.from_qmp_vcpu(qmp_vcpu)
+
+      self.qmp.HotAddvCPU(vcpu)
+
+      logging.warning(f"Added CPU: {vcpu}")
+
+      runtime[_KVM_VCPU_RUNTIME_INDEX].append(vcpu.to_dict())
+
+
+    self._SaveKVMRuntime(instance, runtime)
 
 
   def HotRemovevCPUs(self, instance, amount: int):
     hotplugged_cpus = self.GetHotpluggedvCPUs(instance)
 
-    to_add = hotplugged_cpus[-amount:]
+    to_remove = hotplugged_cpus[::-1][-amount:]
 
-    for cpu in to_add:
-      cpu_id = cpu['qom-path'].replace('/machine/peripheral/', '')
+    logging.warning(f"To Remove: {to_remove}")
 
-      self.qmp.HotDelvCPU(cpu_id)
+    runtime = self._LoadKVMRuntime(instance)
 
+    for qmp_vcpu in to_remove:
+      vcpu = QMPVCPUItem.from_qmp_vcpu(qmp_vcpu)
+
+      self.qmp.HotDelvCPU(vcpu.cpu_id)
+
+      runtime[_KVM_VCPU_RUNTIME_INDEX].remove(vcpu.to_dict())
+
+    self._SaveKVMRuntime(instance, runtime)
 
   @_with_qmp
   def GetCurrentvCPUs(self, instance):
@@ -2446,6 +2491,9 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       if "qom-path" not in cpu:
         pluggable.append(cpu)
 
+    # sort
+    pluggable.sort(key=lambda vcpu: vcpu['props']['socket-id'], reverse=False)
+
     return pluggable
 
   @_with_qmp
@@ -2457,6 +2505,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     for cpu in hotplug_info:
       if "qom-path" in cpu and cpu["qom-path"] != "/machine/unattached/device[0]":
         plugged.append(cpu)
+
+    plugged.sort(key=lambda vcpu: vcpu['props']['socket-id'], reverse=False)
 
     return plugged
 
@@ -2634,7 +2684,24 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     kvmhelp = self._GetKVMOutput(kvmpath, self._KVMOPT_HELP)
     self._ExecuteKVMRuntime(instance, kvm_runtime, kvmhelp,
                             incoming=incoming_address)
+
+    self._PrepareInstanceForMigration(instance,
+                                      kvm_runtime,
+                                      kvmpath, kvmhelp,
+                                      incoming_address)
+
     self._SetInstanceMigrationCapabilities(instance)
+
+
+  def _PrepareInstanceForMigration(self, instance, kvm_runtime, kvm_path, kvm_help, incoming_address):
+    """ Prepare an instace bevore the migration start e.g. handle hotplugged vcpus.
+    """
+
+    # handle hotplugged vcpus
+    _, _, _, _, kvm_vcpus = kvm_runtime
+    for vcpu in kvm_vcpus:
+      self.qmp.HotAddvCPU(QMPVCPUItem.from_dict(vcpu))
+
 
   def _ConfigureRoutedNICs(self, instance, info):
     """Configures all NICs in routed mode
