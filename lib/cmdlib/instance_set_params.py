@@ -53,7 +53,7 @@ from ganeti.cmdlib.common import INSTANCE_DOWN, \
   IsExclusiveStorageEnabledNode, CheckHVParams, CheckOSParams, \
   GetUpdatedParams, CheckInstanceState, ExpandNodeUuidAndName, \
   IsValidDiskAccessModeCombination, AnnotateDiskParams, \
-  CheckIAllocatorOrNode
+  CheckIAllocatorOrNode, IsInstanceRunning
 from ganeti.cmdlib.instance_storage import CalculateFileStorageDir, \
   CheckDiskExtProvider, CheckNodesFreeDiskPerVG, CheckRADOSFreeSpace, \
   CheckSpindlesExclusiveStorage, ComputeDiskSizePerVG, ComputeDisksInfo, \
@@ -1919,9 +1919,11 @@ class LUInstanceSetParams(LogicalUnit):
                        self._RemoveDisk, self._DetachDisk,
                        post_add_fn=self._PostAddDisk)
 
-    # Apply Hotplug vCPUs if vcpu is defined and changed
-    if self.be_new[constants.BE_VCPUS]:
-      self._HotplugVCPUs(self.be_new[constants.BE_VCPUS])
+    # do Hotplug action if instance is running
+    if IsInstanceRunning(self, self.instance):
+      # do vcpu hotplug if the vcpu backend param has changed
+      if self.be_new[constants.BE_VCPUS] and self.be_new[constants.BE_VCPUS] != self.instance.beparams[constants.BE_VCPUS]:
+        self._HotplugVCPUs(self.be_new[constants.BE_VCPUS])
 
     if self.op.disk_template:
       if __debug__:

@@ -47,6 +47,7 @@ from ganeti import errors
 from ganeti import utils
 from ganeti import constants
 from ganeti import serializer
+from ganeti.hypervisor.hv_kvm.types import QMPVCPUItem
 
 
 class QmpCommandNotSupported(errors.HypervisorError):
@@ -629,15 +630,11 @@ class QmpConnection(MonitorSocket):
 
 
   @_ensure_connection
-  def HotAddvCPU(self, cpu: Dict) -> None:
+  def HotAddvCPU(self, vcpu: QMPVCPUItem):
     # cpu = Dict object von query-cpus...
     # device_add id=cpu-2 driver=IvyBridge-IBRS-x86_64-cpu socket-id=1 core-id=0 thread-id=0
 
-    arguments = cpu['props'].copy()
-    arguments["id"] = f"cpu-{cpu['props']['socket-id']}"
-    arguments["driver"] = cpu['type']
-
-    self.Execute("device_add", arguments)
+    self.Execute("device_add", vcpu.to_qmp_vcpu())
 
 
   @_ensure_connection

@@ -544,7 +544,8 @@ hypervisor_hv_kvm_PYTHON = \
 	lib/hypervisor/hv_kvm/__init__.py \
 	lib/hypervisor/hv_kvm/monitor.py \
 	lib/hypervisor/hv_kvm/netdev.py \
-	lib/hypervisor/hv_kvm/validation.py
+	lib/hypervisor/hv_kvm/validation.py \
+    lib/hypervisor/hv_kvm/types.py
 
 jqueue_PYTHON = \
 	lib/jqueue/__init__.py \
