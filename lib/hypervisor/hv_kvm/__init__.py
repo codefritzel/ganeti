@@ -121,23 +121,41 @@ _DEVICE_TYPE = {
   constants.HOTPLUG_TARGET_DISK: lambda hvp: hvp[constants.HV_DISK_TYPE],
   }
 
-_DEVICE_DRIVER = {
-  constants.HOTPLUG_TARGET_NIC:
-    lambda ht: "virtio-net-pci" if ht == constants.HT_NIC_PARAVIRTUAL else ht,
-  constants.HOTPLUG_TARGET_DISK:
-    lambda ht: "virtio-blk-pci" if ht == constants.HT_DISK_PARAVIRTUAL else ht,
-  }
+
+def get_driver(dev_type: str, hv_dev_type: str) -> str:
+  """
+    Returns the respective device driver depending on the device
+
+    @param dev_type: nics or disks to be plugged
+    @param hv_dev_type: disk_type or nic_type configured in hvparam
+
+    @return: the bus to be used
+  """
+  if dev_type == constants.HOTPLUG_TARGET_NIC:
+    return "virtio-net-pci" if hv_dev_type == constants.HT_NIC_PARAVIRTUAL \
+      else hv_dev_type
+  elif dev_type == constants.HOTPLUG_TARGET_DISK:
+    return "virtio-blk-pci" if hv_dev_type == constants.HT_DISK_PARAVIRTUAL \
+      else hv_dev_type
 
 
-# NICs and paravirtual disks
-# show up as devices on the PCI bus (one slot per device).
-# SCSI disks will be placed on the SCSI bus.
-_DEVICE_BUS = {
-  constants.HOTPLUG_TARGET_NIC:
-    lambda _: _PCI_BUS,
-  constants.HOTPLUG_TARGET_DISK:
-    lambda ht: _SCSI_BUS if ht in constants.HT_SCSI_DEVICE_TYPES else _PCI_BUS
-  }
+def get_bus(dev_type: str, hv_dev_type: str) -> str:
+  """
+    Returns the respective bus depending on the device
+
+    @param dev_type: nics or disks to be plugged
+    @param hv_dev_type: disk_type or nic_type configured in hvparam
+
+    @return: the bus to be used
+  """
+  # show up as devices on the PCI bus (one slot per device).
+  if dev_type == constants.HOTPLUG_TARGET_NIC:
+    return _PCI_BUS
+  elif dev_type == constants.HOTPLUG_TARGET_DISK:
+    # SCSI disks will be placed on the SCSI bus.
+    return _SCSI_BUS if hv_dev_type in constants.HT_SCSI_DEVICE_TYPES \
+      else _PCI_BUS
+
 
 _HOTPLUGGABLE_DEVICE_TYPES = {
   # All available NIC types except for ne2k_isa
@@ -282,8 +300,8 @@ def _GenerateDeviceHVInfo(dev_type, kvm_devid, hv_dev_type, bus_slots):
            for generating a -device QEMU option for either a disk or a NIC
 
   """
-  driver = _DEVICE_DRIVER[dev_type](hv_dev_type)
-  bus = _DEVICE_BUS[dev_type](hv_dev_type)
+  driver = get_driver(dev_type, hv_dev_type)
+  bus = get_bus(dev_type, hv_dev_type)
   slots = bus_slots[bus]
   slot = utils.GetFreeSlot(slots, reserve=True)
 
