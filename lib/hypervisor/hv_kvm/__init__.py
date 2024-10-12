@@ -139,7 +139,15 @@ def get_driver(dev_type: str, hv_dev_type: str) -> str:
       else hv_dev_type
 
 
-def get_bus(dev_type: str, hv_dev_type: str) -> str:
+def is_pcie_supported(machine_type: str) -> bool:
+  """
+    Checks if the given machine type supports PCI Express.
+  """
+  return "q35" in machine_type
+
+
+def get_bus(dev_type: str, hv_dev_type: str,
+            pci_bus_state, pcie: bool = False) -> str:
   """
     Returns the respective bus depending on the device
 
@@ -148,13 +156,18 @@ def get_bus(dev_type: str, hv_dev_type: str) -> str:
 
     @return: the bus to be used
   """
-  # show up as devices on the PCI bus (one slot per device).
-  if dev_type == constants.HOTPLUG_TARGET_NIC:
+  if pcie and hv_dev_type not in constants.HT_SCSI_DEVICE_TYPES:
+    # return the next free pci root port bus
+    ports = pci_bus_state['PCIE_ROOT_PORTS']
+    next_port = utils.GetFreeSlot(ports, reserve=True)
+    logging.warning(f"Next PCIE root port: {next_port}")
+
+    return f"pci.{next_port + 1}"
+  elif (dev_type == constants.HOTPLUG_TARGET_DISK and
+        hv_dev_type in constants.HT_SCSI_DEVICE_TYPES):
+    return _SCSI_BUS
+  else:
     return _PCI_BUS
-  elif dev_type == constants.HOTPLUG_TARGET_DISK:
-    # SCSI disks will be placed on the SCSI bus.
-    return _SCSI_BUS if hv_dev_type in constants.HT_SCSI_DEVICE_TYPES \
-      else _PCI_BUS
 
 
 _HOTPLUGGABLE_DEVICE_TYPES = {
@@ -180,6 +193,11 @@ _HOTPLUGGABLE_DEVICE_TYPES = {
 
 _PCI_BUS = "pci.0"
 _SCSI_BUS = "scsi.0"
+
+# PCIe
+PCIE_PORT_START = 15
+PCIE_ADDR_START = 0x4
+PCIE_ROOT_PORT_AMOUNT = 16
 
 _MIGRATION_CAPS_DELIM = ":"
 
@@ -275,7 +293,8 @@ def _GenerateDeviceHVInfoStr(hvinfo):
   return hvinfo_str
 
 
-def _GenerateDeviceHVInfo(dev_type, kvm_devid, hv_dev_type, bus_slots):
+def _GenerateDeviceHVInfo(dev_type, kvm_devid, hv_dev_type,
+                          pci_bus_state, pcie: bool = False):
   """Helper function to generate hvinfo of a device (disk, NIC)
 
   hvinfo will hold all necessary info for generating the -device QEMU option.
@@ -292,8 +311,8 @@ def _GenerateDeviceHVInfo(dev_type, kvm_devid, hv_dev_type, bus_slots):
   @param kvm_devid: the id of the device
   @type hv_dev_type: string
   @param hv_dev_type: either disk_type or nic_type hvparam
-  @type bus_slots: dict
-  @param bus_slots: the current slots of the first PCI and SCSI buses
+  @type pci_bus_state: dict
+  @param pci_bus_state: the current slots of the first PCI and SCSI buses
 
   @rtype: dict
   @return: dict including all necessary info (driver, id, bus and bus location)
@@ -301,9 +320,9 @@ def _GenerateDeviceHVInfo(dev_type, kvm_devid, hv_dev_type, bus_slots):
 
   """
   driver = get_driver(dev_type, hv_dev_type)
-  bus = get_bus(dev_type, hv_dev_type)
-  slots = bus_slots[bus]
-  slot = utils.GetFreeSlot(slots, reserve=True)
+  bus = get_bus(dev_type, hv_dev_type, pci_bus_state, pcie=pcie)
+
+  logging.warning(f"Type: {dev_type}, ID: {kvm_devid}, BUS: {bus}")
 
   hvinfo = {
     "driver": driver,
@@ -311,16 +330,23 @@ def _GenerateDeviceHVInfo(dev_type, kvm_devid, hv_dev_type, bus_slots):
     "bus": bus,
     }
 
-  if bus == _PCI_BUS:
+  if pcie and bus != _SCSI_BUS:
     hvinfo.update({
-      "addr": hex(slot),
-      })
-  elif bus == _SCSI_BUS:
-    hvinfo.update({
-      "channel": 0,
-      "scsi-id": slot,
-      "lun": 0,
-      })
+      'addr': hex(0)
+    })
+  else:
+    slots = pci_bus_state[bus]
+    slot = utils.GetFreeSlot(slots, reserve=True)
+    if bus == _PCI_BUS:
+      hvinfo.update({
+        "addr": hex(slot),
+        })
+    elif bus == _SCSI_BUS:
+      hvinfo.update({
+        "channel": 0,
+        "scsi-id": slot,
+        "lun": 0,
+        })
 
   return hvinfo
 
@@ -1266,8 +1292,18 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     kvm_cmd.extend(["-smp", ",".join(smp_list)])
 
     kvm_cmd.extend(["-pidfile", pidfile])
+    pci_bus_state = self._get_pci_bus_state(hvp)
 
-    bus_slots = self._GetBusSlots(hvp)
+    # Add x pcie root ports
+    pcie = is_pcie_supported(hvp[constants.HV_KVM_MACHINE_VERSION])
+    if pcie:
+      for i in range(10):
+        kvm_cmd.extend(
+          ["-device",
+            f"pcie-root-port,"
+              f"port={PCIE_ROOT_PORT_AMOUNT+i},chassis={i},"
+                f"id=pci.{i},"
+                  f"bus=pcie.0,addr={hex(PCIE_ADDR_START+i)}"])
 
     # As requested by music lovers
     if hvp[constants.HV_SOUNDHW]:
@@ -1589,21 +1625,21 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         shlex.split(hvp[constants.HV_KVM_EXTRA])
       )
 
-    def _generate_kvm_device(dev_type, dev):
+    def _generate_kvm_device(dev_type, dev, pcie):
       """Helper for generating a kvm device out of a Ganeti device."""
       kvm_devid = _GenerateDeviceKVMId(dev_type, dev)
       hv_dev_type = _DEVICE_TYPE[dev_type](hvp)
       dev.hvinfo = _GenerateDeviceHVInfo(dev_type, kvm_devid,
-                                         hv_dev_type, bus_slots)
+                                         hv_dev_type, pci_bus_state, pcie)
 
     kvm_disks = []
     for disk, link_name, uri in block_devices:
-      _generate_kvm_device(constants.HOTPLUG_TARGET_DISK, disk)
+      _generate_kvm_device(constants.HOTPLUG_TARGET_DISK, disk, pcie)
       kvm_disks.append((disk, link_name, uri))
 
     kvm_nics = []
     for nic in instance.nics:
-      _generate_kvm_device(constants.HOTPLUG_TARGET_NIC, nic)
+      _generate_kvm_device(constants.HOTPLUG_TARGET_NIC, nic, pcie)
       kvm_nics.append(nic)
 
     hvparams = hvp
@@ -2064,7 +2100,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     if version < (1, 7, 0):
       raise errors.HotplugError("Hotplug not supported for qemu versions < 1.7")
 
-  def _GetBusSlots(self, hvp=None, runtime: KVMRuntime=None):
+  def _get_pci_bus_state(self, hvp, runtime: KVMRuntime=None):
     """Helper function to get the slots of PCI and SCSI QEMU buses.
 
     This will return the status of the first PCI and SCSI buses. By default
@@ -2084,9 +2120,10 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     """
     # This is by default and returned during _GenerateKVMRuntime()
-    bus_slots = {
+    pci_bus_state = {
       _PCI_BUS: bitarray(self._DEFAULT_PCI_RESERVATIONS),
       _SCSI_BUS: bitarray(self._DEFAULT_SCSI_RESERVATIONS),
+      "PCIE_ROOT_PORTS": bitarray(PCIE_ROOT_PORT_AMOUNT)
       }
 
     # Adjust the empty slots depending of the corresponding hvparam
@@ -2095,7 +2132,9 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       pci = bitarray(constants.QEMU_PCI_SLOTS)
       pci.setall(False) # pylint: disable=E1101
       pci[0:res:1] = True
-      bus_slots[_PCI_BUS] = pci
+      pci_bus_state[_PCI_BUS] = pci
+
+    pcie = is_pcie_supported(hvp[constants.HV_KVM_MACHINE_VERSION])
 
     # This is during hot-add
     if runtime:
@@ -2104,16 +2143,21 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       for d in disks + nics:
         if not d.hvinfo or "bus" not in d.hvinfo:
           continue
-        bus = d.hvinfo["bus"]
-        slots = bus_slots[bus]
-        if bus == _PCI_BUS:
-          slot = d.hvinfo["addr"]
-          slots[int(slot, 16)] = True
-        elif bus == _SCSI_BUS:
-          slot = d.hvinfo["scsi-id"]
-          slots[slot] = True
+        bus: str = d.hvinfo["bus"]
+        if pcie:
+          bus_ports = pci_bus_state["PCIE_ROOT_PORTS"]
+          slot = int(bus.replace("pci.", "")) - 1
+          bus_ports[slot] = True
+        elif not pcie or bus == _SCSI_BUS:
+          slots = pci_bus_state[bus]
+          if bus == _PCI_BUS:
+            slot = d.hvinfo["addr"]
+            slots[int(slot, 16)] = True
+          elif bus == _SCSI_BUS:
+            slot = d.hvinfo["scsi-id"]
+            slots[slot] = True
 
-    return bus_slots
+    return pci_bus_state
 
   @_with_qmp
   def _VerifyHotplugCommand(self, _instance, kvm_devid, should_exist):
@@ -2156,11 +2200,12 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     runtime = self._LoadKVMRuntime(instance)
     up_hvp = runtime[2]
     device_type = _DEVICE_TYPE[dev_type](up_hvp)
-    bus_state = self._GetBusSlots(up_hvp, runtime)
+    bus_state = self._get_pci_bus_state(up_hvp, runtime)
+    pcie = is_pcie_supported(up_hvp[constants.HV_KVM_MACHINE_VERSION])
     # in case of hot-mod this is given
     if not device.hvinfo:
       device.hvinfo = _GenerateDeviceHVInfo(dev_type, kvm_devid,
-                                            device_type, bus_state)
+                                            device_type, bus_state, pcie)
 
     new_runtime_entry = _RUNTIME_ENTRY[dev_type](device, extra)
     if dev_type == constants.HOTPLUG_TARGET_DISK:
