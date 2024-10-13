@@ -39,7 +39,7 @@ import io
 import logging
 import time
 
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, List
 from collections import namedtuple
 from bitarray import bitarray
 
@@ -568,12 +568,25 @@ class QmpConnection(QemuMonitorSocket):
     self.execute_qmp("blockdev-del", {"node-name": devid})
 
   def _GetPCIDevices(self):
-    """Get the devices of the first PCI bus of a running instance.
+    """Get all devices of all PCI busses of a running instance.
 
     """
+    def get_devices(device: dict) -> List[Dict]:
+      devices = [device]
+      if 'devices' in device and len(device['devices']) > 0:
+        return devices.extend(get_devices(device['devices']))
+
+      return devices
+
+
+    devices = []
     pci = self.execute_qmp("query-pci")
-    bus = pci[0]
-    devices = bus["devices"]
+    for bus in pci:
+      for device in bus['devices']:
+        logging.warning(f"device : {device}")
+        test = get_devices(device)
+        logging.warning(f"get_devices : {test}")
+        devices.extend(test)
     return devices
 
 
@@ -594,7 +607,8 @@ class QmpConnection(QemuMonitorSocket):
 
     """
     for d in self._GetPCIDevices():
-      if d["qdev_id"] == devid:
+      logging.warning(f"_HasPCIDevice: {d}")
+      if "qdev_id" in d and d["qdev_id"] == devid:
         return True
 
     return False
