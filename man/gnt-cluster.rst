@@ -384,7 +384,7 @@ comma-separated list of key=value pairs with the following supported
 keys:
 
 mode
-    The default NIC mode, one of ``routed``, ``bridged`` or
+    The default NIC mode, one of ``routed``, ``bridged``, ``ext`` or
     ``openvswitch``.
 
 link
@@ -484,6 +484,18 @@ pool
     The RADOS cluster pool, inside which all rbd volumes will reside.
     When a new RADOS cluster is deployed, the default pool to put rbd
     volumes (Images in RADOS terminology) is 'rbd'.
+
+namespace
+    The RBD namespace this cluster should use. By default no namespace
+    is used.
+
+    Useful for separating RBD consumers and their permissions in
+    combination with 'user-id' below. For example multiple Ganeti
+    clusters sharing a single Ceph cluster.
+
+    Be aware that setting or changing the namespace renders disks from
+    existing instances inaccessible, e.g., by rebooting the instances.
+    The effect is like changing the RBD pool.
 
 access
     If 'userspace', instances will access their disks directly without

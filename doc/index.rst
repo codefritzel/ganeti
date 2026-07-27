@@ -31,6 +31,7 @@ The following resources provide guidance on how to use Ganeti:
 - :doc:`manpages`: Descriptions of the various tools that are part of Ganeti.
 - :doc:`security`: A description of the security model underlying a Ganeti cluster.
 - :doc:`hooks`: Information on hooking scripts, which extend Ganeti functionalities by automatically activating when certain events occur.
+- :doc:`network`: Reference for instance NIC configuration — NIC modes (bridged / routed / openvswitch / ext), the up/down script dispatcher, VLAN formats, and the environment passed to network scripts.
 - :doc:`rapi`: Description of the Ganeti remote API, which allows programmatic access to most of the functionalities of Ganeti.
 - :doc:`ovfconverter`: Description of a tool that provides compatibility with the standard OVF virtual machine interchange format.
 
@@ -80,6 +81,7 @@ and draft versions (which are either incomplete or not implemented).
    design-2.16.rst
    design-3.0.rst
    design-3.1.rst
+   design-3.2.rst
 
 Draft designs
 -------------
@@ -135,10 +137,12 @@ Draft designs
    design-partitioned
    design-performance-tests.rst
    design-plain-redundancy.rst
+   design-q35.rst
    design-query2.rst
    design-query-splitting.rst
    design-qemu-blockdev.rst
    design-reason-trail.rst
+   design-replace-asyncore.rst
    design-reservations.rst
    design-resource-model.rst
    design-restricted-commands.rst
@@ -152,6 +156,7 @@ Draft designs
    dev-codestyle.rst
    glossary.rst
    hooks.rst
+   network.rst
    iallocator.rst
    install.rst
    locking.rst

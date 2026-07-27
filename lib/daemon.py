@@ -32,15 +32,11 @@
 
 from __future__  import print_function
 
-import asyncore
-import collections
 import os
+import selectors
 import signal
 import logging
-import sched
-import time
 import socket
-import select
 import sys
 
 from ganeti import utils
@@ -50,162 +46,6 @@ from ganeti import netutils
 from ganeti import ssconf
 from ganeti import runtime
 from ganeti import compat
-
-
-class GanetiBaseAsyncoreDispatcher(asyncore.dispatcher):
-  """Base Ganeti Asyncore Dispacher
-
-  """
-  # this method is overriding an asyncore.dispatcher method
-  def handle_error(self):
-    """Log an error in handling any request, and proceed.
-
-    """
-    logging.exception("Error while handling asyncore request")
-
-  # this method is overriding an asyncore.dispatcher method
-  def writable(self):
-    """Most of the time we don't want to check for writability.
-
-    """
-    return False
-
-
-class AsyncUDPSocket(GanetiBaseAsyncoreDispatcher):
-  """An improved asyncore udp socket.
-
-  """
-  def __init__(self, family):
-    """Constructor for AsyncUDPSocket
-
-    """
-    GanetiBaseAsyncoreDispatcher.__init__(self)
-    self._out_queue = []
-    self._family = family
-    self.create_socket(family, socket.SOCK_DGRAM)
-
-  # this method is overriding an asyncore.dispatcher method
-  def handle_connect(self):
-    # Python thinks that the first udp message from a source qualifies as a
-    # "connect" and further ones are part of the same connection. We beg to
-    # differ and treat all messages equally.
-    pass
-
-  # this method is overriding an asyncore.dispatcher method
-  def handle_read(self):
-    recv_result = utils.IgnoreSignals(self.socket.recvfrom,
-                                      constants.MAX_UDP_DATA_SIZE)
-    if recv_result is not None:
-      payload, address = recv_result
-      if self._family == socket.AF_INET6:
-        # we ignore 'flow info' and 'scope id' as we don't need them
-        ip, port, _, _ = address
-      else:
-        ip, port = address
-
-      self.handle_datagram(payload, ip, port)
-
-  def handle_datagram(self, payload, ip, port):
-    """Handle an already read udp datagram
-
-    """
-    raise NotImplementedError
-
-  # this method is overriding an asyncore.dispatcher method
-  def writable(self):
-    # We should check whether we can write to the socket only if we have
-    # something scheduled to be written
-    return bool(self._out_queue)
-
-  # this method is overriding an asyncore.dispatcher method
-  def handle_write(self):
-    if not self._out_queue:
-      logging.error("handle_write called with empty output queue")
-      return
-    (ip, port, payload) = self._out_queue[0]
-    utils.IgnoreSignals(self.socket.sendto, payload, 0, (ip, port))
-    self._out_queue.pop(0)
-
-  def enqueue_send(self, ip, port, payload):
-    """Enqueue a datagram to be sent when possible
-
-    """
-    if isinstance(payload, str):
-      payload = payload.encode("utf-8")
-    if len(payload) > constants.MAX_UDP_DATA_SIZE:
-      raise errors.UdpDataSizeError("Packet too big: %s > %s" % (len(payload),
-                                    constants.MAX_UDP_DATA_SIZE))
-    self._out_queue.append((ip, port, payload))
-
-  def process_next_packet(self, timeout=0):
-    """Process the next datagram, waiting for it if necessary.
-
-    @type timeout: float
-    @param timeout: how long to wait for data
-    @rtype: boolean
-    @return: True if some data has been handled, False otherwise
-
-    """
-    result = utils.WaitForFdCondition(self.socket, select.POLLIN, timeout)
-    if result is not None and result & select.POLLIN:
-      self.handle_read()
-      return True
-    else:
-      return False
-
-
-class AsyncAwaker(GanetiBaseAsyncoreDispatcher):
-  """A way to notify the asyncore loop that something is going on.
-
-  If an asyncore daemon is multithreaded when a thread tries to push some data
-  to a socket, the main loop handling asynchronous requests might be sleeping
-  waiting on a select(). To avoid this it can create an instance of the
-  AsyncAwaker, which other threads can use to wake it up.
-
-  """
-  def __init__(self, signal_fn=None):
-    """Constructor for AsyncAwaker
-
-    @type signal_fn: function
-    @param signal_fn: function to call when awaken
-
-    """
-    GanetiBaseAsyncoreDispatcher.__init__(self)
-    assert signal_fn is None or callable(signal_fn)
-    (self.in_socket, self.out_socket) = socket.socketpair(socket.AF_UNIX,
-                                                          socket.SOCK_STREAM)
-    self.in_socket.setblocking(0)
-    self.in_socket.shutdown(socket.SHUT_WR)
-    self.out_socket.shutdown(socket.SHUT_RD)
-    self.set_socket(self.in_socket)
-    self.need_signal = True
-    self.signal_fn = signal_fn
-    self.connected = True
-
-  # this method is overriding an asyncore.dispatcher method
-  def handle_read(self):
-    utils.IgnoreSignals(self.recv, 4096)
-    if self.signal_fn:
-      self.signal_fn()
-    self.need_signal = True
-
-  # this method is overriding an asyncore.dispatcher method
-  def close(self):
-    asyncore.dispatcher.close(self)
-    self.out_socket.close()
-
-  def signal(self):
-    """Signal the asyncore main loop.
-
-    Any data we send here will be ignored, but it will cause the select() call
-    to return.
-
-    """
-    # Yes, there is a race condition here. No, we don't care, at worst we're
-    # sending more than one wakeup token, which doesn't harm at all.
-    if self.need_signal:
-      self.need_signal = False
-      self.out_socket.send(b"\x00")
 
 
 class _ShutdownCheck(object):
@@ -252,6 +92,9 @@ class _ShutdownCheck(object):
 class Mainloop(object):
   """Generic mainloop for daemons
 
+  Uses a selector-based event loop monitoring a socketpair to receive
+  wakeup notifications from signal handlers.
+
   """
   _SHUTDOWN_TIMEOUT_PRIORITY = -(sys.maxsize - 1)
 
@@ -259,11 +102,39 @@ class Mainloop(object):
     """Constructs a new Mainloop instance.
 
     """
-    self._signal_wait = []
-    self.awaker = AsyncAwaker()
+    self._sel = selectors.DefaultSelector()
+    (self._awaker_in, self._awaker_out) = socket.socketpair(
+        socket.AF_UNIX, socket.SOCK_STREAM)
+    self._awaker_in.setblocking(False)
+    self._awaker_in.shutdown(socket.SHUT_WR)
+    self._awaker_out.shutdown(socket.SHUT_RD)
+    self._sel.register(self._awaker_in, selectors.EVENT_READ)
+    self._need_signal = True
+    self.sighup_callbacks = []
 
     # Resolve uid/gids used
     runtime.GetEnts()
+
+  def _wakeup(self):
+    """Wake up the main loop from a signal handler.
+
+    Any data sent is ignored; the write merely causes select() to return.
+
+    """
+    # There is a benign race condition here: at worst we send more than one
+    # wakeup token, which does not cause any harm.
+    if self._need_signal:
+      self._need_signal = False
+      self._awaker_out.send(b"\x00")
+
+  def close(self):
+    """Release selector and socket resources.
+
+    """
+    self._sel.unregister(self._awaker_in)
+    self._sel.close()
+    self._awaker_in.close()
+    self._awaker_out.close()
 
   @utils.SignalHandled([signal.SIGCHLD])
   @utils.SignalHandled([signal.SIGTERM])
@@ -283,7 +154,8 @@ class Mainloop(object):
            len(signal_handlers) > 0, \
            "Broken SignalHandled decorator"
 
-    _sig_notify = lambda _, __: self.awaker.signal()
+    def _sig_notify(_, __):
+      self._wakeup()
 
     for handler in signal_handlers.values():
       handler.SetHandlerFn(_sig_notify)
@@ -316,37 +188,30 @@ class Mainloop(object):
         # Wait forever on I/O events
         timeout = None
 
-      asyncore.loop(count=1, timeout=timeout, use_poll=True)
+      events = self._sel.select(timeout=timeout)
+      for _key, _mask in events:
+        utils.IgnoreSignals(self._awaker_in.recv, 4096)
+        self._need_signal = True
 
       # Check whether a signal was raised
       for (sig, handler) in signal_handlers.items():
         if handler.called:
-          self._CallSignalWaiters(sig)
           if sig in (signal.SIGTERM, signal.SIGINT):
             logging.info("Received signal %s asking for shutdown", sig)
             shutdown_signals += 1
           handler.Clear()
 
-  def _CallSignalWaiters(self, signum):
-    """Calls all signal waiters for a certain signal.
+  def RegisterSighupCallback(self, fn):
+    """Registers a callback to be invoked on SIGHUP.
 
-    @type signum: int
-    @param signum: Signal number
+    The callback is called after log files are reopened. Exceptions in the
+    callback are logged but do not prevent other callbacks from running.
 
-    """
-    for owner in self._signal_wait:
-      owner.OnSignal(signum)
-
-  def RegisterSignal(self, owner):
-    """Registers a receiver for signal notifications
-
-    The receiver must support a "OnSignal(self, signum)" function.
-
-    @type owner: instance
-    @param owner: Receiver
+    @type fn: callable
+    @param fn: Callback function (no arguments)
 
     """
-    self._signal_wait.append(owner)
+    self.sighup_callbacks.append(fn)
 
 
 def _VerifyDaemonUser(daemon_name):
@@ -401,10 +266,11 @@ def _BeautifyError(err):
     return "%s" % str(err)
 
 
-def _HandleSigHup(reopen_fn, signum, frame): # pylint: disable=W0613
+def _HandleSigHup(reopen_fn, reload_fn, signum, frame): # pylint: disable=W0613
   """Handler for SIGHUP.
 
   @param reopen_fn: List of callback functions for reopening log files
+  @param reload_fn: List of callback functions for reloading configuration
 
   """
   logging.info("Reopening log files after receiving SIGHUP")
@@ -412,6 +278,13 @@ def _HandleSigHup(reopen_fn, signum, frame): # pylint: disable=W0613
   for fn in reopen_fn:
     if fn:
       fn()
+
+  for fn in reload_fn:
+    if fn:
+      try:
+        fn()
+      except Exception: # pylint: disable=W0703
+        logging.exception("Error in SIGHUP reload callback")
 
 
 def GenericMain(daemon_name, optionparser,
@@ -586,9 +459,11 @@ def GenericMain(daemon_name, optionparser,
                        syslog=options.syslog,
                        console_logging=console_logging)
 
-  # Reopen log file(s) on SIGHUP
+  # Reopen log file(s) on SIGHUP; reload callbacks are added after prepare_fn
   signal.signal(signal.SIGHUP,
-                compat.partial(_HandleSigHup, [log_reopen_fn, stdio_reopen_fn]))
+                compat.partial(_HandleSigHup,
+                               [log_reopen_fn, stdio_reopen_fn],
+                               []))
 
   try:
     utils.WritePidFile(utils.DaemonPidFileName(daemon_name))
@@ -611,6 +486,18 @@ def GenericMain(daemon_name, optionparser,
       # we're done with the preparation phase, we close the pipe to
       # let the parent know it's safe to exit
       os.close(wpipe)
+
+    # Update SIGHUP handler with reload callbacks registered by prepare_fn.
+    # By convention, prepare_fn returns (mainloop, ...) when it uses a Mainloop.
+    sighup_reload_callbacks = (
+        prep_results[0].sighup_callbacks
+        if isinstance(prep_results, tuple) and prep_results and
+        isinstance(prep_results[0], Mainloop)
+        else [])
+    signal.signal(signal.SIGHUP,
+                  compat.partial(_HandleSigHup,
+                                 [log_reopen_fn, stdio_reopen_fn],
+                                 sighup_reload_callbacks))
 
     exec_fn(options, args, prep_results)
   finally:

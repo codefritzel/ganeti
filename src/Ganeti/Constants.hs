@@ -1407,6 +1407,14 @@ rpcTmo_1day = Types.rpcTimeoutToRaw OneDay
 rpcConnectTimeout :: Int
 rpcConnectTimeout = 5
 
+-- | Maximum number of simultaneous outbound RPC connections from the
+-- master. Limits concurrent TLS handshakes when fanning out to many
+-- nodes, preventing connect timeouts due to CPU and network contention.
+-- Libcurl queues excess connections internally and starts them as
+-- running ones complete.
+rpcMaxConcurrentConnections :: Int
+rpcMaxConcurrentConnections = 30
+
 -- OS
 
 osScriptCreate :: String
@@ -1569,6 +1577,9 @@ vtypeSize = VTypeSize
 
 vtypeString :: VType
 vtypeString = VTypeString
+
+vtypeIntOrAuto :: VType
+vtypeIntOrAuto = VTypeIntOrAuto
 
 enforceableTypes :: FrozenSet VType
 enforceableTypes = ConstantUtils.mkSet [minBound..]
@@ -1825,6 +1836,12 @@ hvVhostNet = "vhost_net"
 hvVirtioNetQueues :: String
 hvVirtioNetQueues = "virtio_net_queues"
 
+maxVirtioNetQueues :: Int
+maxVirtioNetQueues = 32
+
+maxVirtioNetQueuesAuto :: Int
+maxVirtioNetQueuesAuto = 8
+
 hvVifScript :: String
 hvVifScript = "vif_script"
 
@@ -1949,7 +1966,7 @@ hvsParameterTypes = Map.fromList
   , (hvUseLocaltime,                    VTypeBool)
   , (hvVga,                             VTypeString)
   , (hvVhostNet,                        VTypeBool)
-  , (hvVirtioNetQueues,                 VTypeInt)
+  , (hvVirtioNetQueues,                 VTypeIntOrAuto)
   , (hvVifScript,                       VTypeString)
   , (hvVifType,                         VTypeString)
   , (hvViridian,                        VTypeBool)
@@ -2302,6 +2319,9 @@ ldpPool = "pool"
 ldpUserId :: String
 ldpUserId = "user-id"
 
+ldpNamespace :: String
+ldpNamespace = "namespace"
+
 ldpProtocol :: String
 ldpProtocol = "protocol"
 
@@ -2330,7 +2350,8 @@ diskLdTypes =
    (ldpMaxRate, VTypeInt),
    (ldpMinRate, VTypeInt),
    (ldpPool, VTypeString),
-   (ldpUserId, VTypeString)]
+   (ldpUserId, VTypeString),
+   (ldpNamespace, VTypeString)]
 
 diskLdParameters :: FrozenSet String
 diskLdParameters = ConstantUtils.mkSet (Map.keys diskLdTypes)
@@ -2397,6 +2418,9 @@ rbdPool = "pool"
 rbdUserId :: String
 rbdUserId = "user-id"
 
+rbdNamespace :: String
+rbdNamespace = "namespace"
+
 diskDtTypes :: Map String VType
 diskDtTypes =
   Map.fromList [(drbdResyncRate, VTypeInt),
@@ -2418,6 +2442,7 @@ diskDtTypes =
                 (rbdAccess, VTypeString),
                 (rbdPool, VTypeString),
                 (rbdUserId, VTypeString),
+                (rbdNamespace, VTypeString),
                 (glusterHost, VTypeString),
                 (glusterVolume, VTypeString),
                 (glusterPort, VTypeInt)
@@ -2493,6 +2518,14 @@ oobStatuses = ConstantUtils.mkSet $ map Types.oobStatusToRaw [minBound..]
 ppDefault :: String
 ppDefault = "default"
 
+-- * nicAction* constants are used as script names
+
+nicActionUp :: String
+nicActionUp = "up"
+
+nicActionDown :: String
+nicActionDown = "down"
+
 -- * nic* constants are used inside the ganeti config
 
 nicLink :: String
@@ -2524,6 +2557,9 @@ nicModeOvs = Types.nICModeToRaw NMOvs
 
 nicIpPool :: String
 nicIpPool = Types.nICModeToRaw NMPool
+
+nicModeExt :: String
+nicModeExt = Types.nICModeToRaw NMExt
 
 nicValidModes :: FrozenSet String
 nicValidModes = ConstantUtils.mkSet $ map Types.nICModeToRaw [minBound..]
@@ -2800,11 +2836,15 @@ htScsiControllerVirtio = "virtio-scsi-pci"
 htScsiControllerMegasas :: String
 htScsiControllerMegasas = "megasas"
 
+htScsiControllerTekram :: String
+htScsiControllerTekram = "dc390"
+
 htKvmValidScsiControllerTypes :: FrozenSet String
 htKvmValidScsiControllerTypes =
   ConstantUtils.mkSet [htScsiControllerLsi,
                        htScsiControllerVirtio,
-                       htScsiControllerMegasas]
+                       htScsiControllerMegasas,
+                       htScsiControllerTekram]
 
 htCacheDefault :: String
 htCacheDefault = "default"
@@ -4237,6 +4277,9 @@ defaultRbdPool = "rbd"
 defaultRbdUserId :: String
 defaultRbdUserId = ""
 
+defaultRbdNamespace :: String
+defaultRbdNamespace = ""
+
 diskLdDefaults :: Map DiskTemplate (Map String PyValueEx)
 diskLdDefaults =
   Map.fromList
@@ -4265,6 +4308,7 @@ diskLdDefaults =
             [ (ldpPool, PyValueEx defaultRbdPool)
             , (ldpAccess, PyValueEx diskKernelspace)
             , (ldpUserId, PyValueEx defaultRbdUserId)
+            , (ldpNamespace, PyValueEx defaultRbdNamespace)
             ])
   , (DTSharedFile, Map.empty)
   , (DTGluster, Map.fromList
@@ -4306,6 +4350,7 @@ diskDtDefaults =
                    [ (rbdPool, PyValueEx defaultRbdPool)
                    , (rbdAccess, PyValueEx diskKernelspace)
                    , (rbdUserId, PyValueEx defaultRbdUserId)
+                   , (rbdNamespace, PyValueEx defaultRbdNamespace)
                    ])
   , (DTSharedFile, Map.empty)
   , (DTGluster, Map.fromList

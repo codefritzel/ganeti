@@ -271,6 +271,9 @@ class R_root(baserlib.ResourceBase):
   """/ resource.
 
   """
+  GET_ACCESS = None
+  GET_AUTH_REQUIRED = False
+
   @staticmethod
   def GET():
     """Supported for legacy reasons.
@@ -292,6 +295,9 @@ class R_version(baserlib.ResourceBase):
   to adapt clients accordingly.
 
   """
+  GET_ACCESS = None
+  GET_AUTH_REQUIRED = False
+
   @staticmethod
   def GET():
     """Returns the remote API version.
@@ -304,6 +310,7 @@ class R_2_info(baserlib.OpcodeResource):
   """/2/info resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_CLUSTER_INFO
   GET_OPCODE = opcodes.OpClusterQuery
   GET_ALIASES = {
     "volume_group_name": "vg_name",
@@ -322,6 +329,9 @@ class R_2_features(baserlib.ResourceBase):
   """/2/features resource.
 
   """
+  GET_ACCESS = None
+  GET_AUTH_REQUIRED = False
+
   @staticmethod
   def GET():
     """Returns list of optional RAPI features implemented.
@@ -334,6 +344,7 @@ class R_2_os(baserlib.OpcodeResource):
   """/2/os resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_OS_LIST
   GET_OPCODE = opcodes.OpOsDiagnose
 
   def GET(self):
@@ -391,6 +402,7 @@ class R_2_redist_config(baserlib.OpcodeResource):
   """/2/redistribute-config resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_CLUSTER_REDISTRIBUTE_CONFIG
   PUT_OPCODE = opcodes.OpClusterRedistConf
 
 
@@ -398,6 +410,7 @@ class R_2_cluster_modify(baserlib.OpcodeResource):
   """/2/modify resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_CLUSTER_MODIFY
   PUT_OPCODE = opcodes.OpClusterSetParams
   PUT_FORBIDDEN = [
     "compression_tools",
@@ -440,6 +453,8 @@ class R_2_filters(baserlib.ResourceBase):
   """/2/filters resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_FILTER_LIST
+  POST_ACCESS = rapi.RAPI_ACCESS_FILTER_CREATE
 
   def GET(self):
     """Returns a list of all filter rules.
@@ -475,6 +490,9 @@ class R_2_filters_uuid(baserlib.ResourceBase):
   """/2/filters/[filter_uuid] resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_FILTER_QUERY
+  PUT_ACCESS = rapi.RAPI_ACCESS_FILTER_MODIFY
+  DELETE_ACCESS = rapi.RAPI_ACCESS_FILTER_REMOVE
   def GET(self):
     """Returns a filter rule.
 
@@ -526,6 +544,8 @@ class R_2_jobs(baserlib.ResourceBase):
   """/2/jobs resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_JOBS_LIST
+
   def GET(self):
     """Returns a dictionary of jobs.
 
@@ -547,6 +567,9 @@ class R_2_jobs_id(baserlib.ResourceBase):
   """/2/jobs/[job_id] resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_JOBS_QUERY
+  DELETE_ACCESS = rapi.RAPI_ACCESS_JOBS_CANCEL
+
   def GET(self):
     """Returns a job status.
 
@@ -581,7 +604,7 @@ class R_2_jobs_id_wait(baserlib.ResourceBase):
   """
   # WaitForJobChange provides access to sensitive information and blocks
   # machine resources (it's a blocking RAPI call), hence restricting access.
-  GET_ACCESS = [rapi.RAPI_ACCESS_WRITE]
+  GET_ACCESS = rapi.RAPI_ACCESS_JOBS_WAIT
 
   def GET(self):
     """Waits for job changes.
@@ -628,6 +651,7 @@ class R_2_nodes(baserlib.OpcodeResource):
   """/2/nodes resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_NODES_LIST
 
   def GET(self):
     """Returns a list of all nodes.
@@ -649,6 +673,7 @@ class R_2_nodes_name(baserlib.OpcodeResource):
   """/2/nodes/[node_name] resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_NODES_QUERY
   GET_ALIASES = {
     "sip": "secondary_ip",
     }
@@ -671,6 +696,7 @@ class R_2_nodes_name_powercycle(baserlib.OpcodeResource):
   """/2/nodes/[node_name]/powercycle resource.
 
   """
+  POST_ACCESS = rapi.RAPI_ACCESS_NODES_POWERCYCLE
   POST_OPCODE = opcodes.OpNodePowercycle
 
   def GetPostOpInput(self):
@@ -687,6 +713,8 @@ class R_2_nodes_name_role(baserlib.OpcodeResource):
   """/2/nodes/[node_name]/role resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_NODES_ROLE_QUERY
+  PUT_ACCESS = rapi.RAPI_ACCESS_NODES_ROLE_MODIFY
   PUT_OPCODE = opcodes.OpNodeSetParams
 
   def GET(self):
@@ -746,6 +774,7 @@ class R_2_nodes_name_evacuate(baserlib.OpcodeResource):
   """/2/nodes/[node_name]/evacuate resource.
 
   """
+  POST_ACCESS = rapi.RAPI_ACCESS_NODES_EVACUATE
   POST_OPCODE = opcodes.OpNodeEvacuate
 
   def GetPostOpInput(self):
@@ -762,6 +791,7 @@ class R_2_nodes_name_migrate(baserlib.OpcodeResource):
   """/2/nodes/[node_name]/migrate resource.
 
   """
+  POST_ACCESS = rapi.RAPI_ACCESS_NODES_MIGRATE
   POST_OPCODE = opcodes.OpNodeMigrate
 
   def GetPostOpInput(self):
@@ -797,6 +827,7 @@ class R_2_nodes_name_modify(baserlib.OpcodeResource):
   """/2/nodes/[node_name]/modify resource.
 
   """
+  POST_ACCESS = rapi.RAPI_ACCESS_NODES_MODIFY
   POST_OPCODE = opcodes.OpNodeSetParams
 
   def GetPostOpInput(self):
@@ -815,7 +846,7 @@ class R_2_nodes_name_storage(baserlib.OpcodeResource):
 
   """
   # LUNodeQueryStorage acquires locks, hence restricting access to GET
-  GET_ACCESS = [rapi.RAPI_ACCESS_WRITE]
+  GET_ACCESS = rapi.RAPI_ACCESS_NODES_STORAGE_QUERY
   GET_OPCODE = opcodes.OpNodeQueryStorage
 
   def GetGetOpInput(self):
@@ -840,6 +871,7 @@ class R_2_nodes_name_storage_modify(baserlib.OpcodeResource):
   """/2/nodes/[node_name]/storage/modify resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_NODES_STORAGE_MODIFY
   PUT_OPCODE = opcodes.OpNodeModifyStorage
 
   def GetPutOpInput(self):
@@ -871,6 +903,7 @@ class R_2_nodes_name_storage_repair(baserlib.OpcodeResource):
   """/2/nodes/[node_name]/storage/repair resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_NODES_STORAGE_REPAIR
   PUT_OPCODE = opcodes.OpRepairNodeStorage
 
   def GetPutOpInput(self):
@@ -894,6 +927,8 @@ class R_2_networks(baserlib.OpcodeResource):
   """/2/networks resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_NETWORKS_LIST
+  POST_ACCESS = rapi.RAPI_ACCESS_NETWORKS_CREATE
   POST_OPCODE = opcodes.OpNetworkAdd
   POST_RENAME = {
     "name": "network_name",
@@ -932,6 +967,8 @@ class R_2_networks_name(baserlib.OpcodeResource):
   """/2/networks/[network_name] resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_NETWORKS_QUERY
+  DELETE_ACCESS = rapi.RAPI_ACCESS_NETWORKS_REMOVE
   DELETE_OPCODE = opcodes.OpNetworkRemove
 
   def GET(self):
@@ -966,6 +1003,7 @@ class R_2_networks_name_connect(baserlib.OpcodeResource):
   """/2/networks/[network_name]/connect resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_NETWORKS_CONNECT
   PUT_OPCODE = opcodes.OpNetworkConnect
 
   def GetPutOpInput(self):
@@ -983,6 +1021,7 @@ class R_2_networks_name_disconnect(baserlib.OpcodeResource):
   """/2/networks/[network_name]/disconnect resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_NETWORKS_DISCONNECT
   PUT_OPCODE = opcodes.OpNetworkDisconnect
 
   def GetPutOpInput(self):
@@ -1000,6 +1039,7 @@ class R_2_networks_name_modify(baserlib.OpcodeResource):
   """/2/networks/[network_name]/modify resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_NETWORKS_MODIFY
   PUT_OPCODE = opcodes.OpNetworkSetParams
 
   def GetPutOpInput(self):
@@ -1016,6 +1056,7 @@ class R_2_networks_name_rename(baserlib.OpcodeResource):
   """/2/networks/[network_name]/rename resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_NETWORKS_RENAME
   PUT_OPCODE = opcodes.OpNetworkRename
 
   def GetPutOpInput(self):
@@ -1033,6 +1074,8 @@ class R_2_groups(baserlib.OpcodeResource):
   """/2/groups resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_GROUPS_LIST
+  POST_ACCESS = rapi.RAPI_ACCESS_GROUPS_CREATE
   POST_OPCODE = opcodes.OpGroupAdd
   POST_RENAME = {
     "name": "group_name",
@@ -1068,6 +1111,8 @@ class R_2_groups_name(baserlib.OpcodeResource):
   """/2/groups/[group_name] resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_GROUPS_QUERY
+  DELETE_ACCESS = rapi.RAPI_ACCESS_GROUPS_DELETE
   DELETE_OPCODE = opcodes.OpGroupRemove
 
   def GET(self):
@@ -1098,6 +1143,7 @@ class R_2_groups_name_modify(baserlib.OpcodeResource):
   """/2/groups/[group_name]/modify resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_GROUPS_MODIFY
   PUT_OPCODE = opcodes.OpGroupSetParams
   PUT_RENAME = {
     "custom_ndparams": "ndparams",
@@ -1119,6 +1165,7 @@ class R_2_groups_name_rename(baserlib.OpcodeResource):
   """/2/groups/[group_name]/rename resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_GROUPS_RENAME
   PUT_OPCODE = opcodes.OpGroupRename
 
   def GetPutOpInput(self):
@@ -1136,6 +1183,7 @@ class R_2_groups_name_assign_nodes(baserlib.OpcodeResource):
   """/2/groups/[group_name]/assign-nodes resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_GROUPS_ASSIGN_NODES
   PUT_OPCODE = opcodes.OpGroupAssignNodes
 
   def GetPutOpInput(self):
@@ -1175,6 +1223,8 @@ class R_2_instances(baserlib.OpcodeResource):
   """/2/instances resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_INSTANCES_LIST
+  POST_ACCESS = rapi.RAPI_ACCESS_INSTANCES_CREATE
   POST_OPCODE = opcodes.OpInstanceCreate
   POST_RENAME = {
     "os": "os_type",
@@ -1231,6 +1281,7 @@ class R_2_instances_multi_alloc(baserlib.OpcodeResource):
   """/2/instances-multi-alloc resource.
 
   """
+  POST_ACCESS = rapi.RAPI_ACCESS_INSTANCES_MULTI_ALLOC
   POST_OPCODE = opcodes.OpInstanceMultiAlloc
 
   def GetPostOpInput(self):
@@ -1268,6 +1319,8 @@ class R_2_instances_name(baserlib.OpcodeResource):
   """/2/instances/[instance_name] resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_INSTANCES_QUERY
+  DELETE_ACCESS = rapi.RAPI_ACCESS_INSTANCES_REMOVE
   DELETE_OPCODE = opcodes.OpInstanceRemove
 
   def GET(self):
@@ -1300,6 +1353,7 @@ class R_2_instances_name_info(baserlib.OpcodeResource):
   """/2/instances/[instance_name]/info resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_INSTANCES_INFO
   GET_OPCODE = opcodes.OpInstanceQueryData
 
   def GetGetOpInput(self):
@@ -1319,6 +1373,7 @@ class R_2_instances_name_reboot(baserlib.OpcodeResource):
   Implements an instance reboot.
 
   """
+  POST_ACCESS = rapi.RAPI_ACCESS_INSTANCES_REBOOT
   POST_OPCODE = opcodes.OpInstanceReboot
 
   def GetPostOpInput(self):
@@ -1343,6 +1398,7 @@ class R_2_instances_name_startup(baserlib.OpcodeResource):
   Implements an instance startup.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_INSTANCES_STARTUP
   PUT_OPCODE = opcodes.OpInstanceStartup
 
   def GetPutOpInput(self):
@@ -1366,6 +1422,7 @@ class R_2_instances_name_shutdown(baserlib.OpcodeResource):
   Implements an instance shutdown.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_INSTANCES_SHUTDOWN
   PUT_OPCODE = opcodes.OpInstanceShutdown
 
   def GetPutOpInput(self):
@@ -1409,6 +1466,7 @@ class R_2_instances_name_reinstall(baserlib.OpcodeResource):
   Implements an instance reinstall.
 
   """
+  POST_ACCESS = rapi.RAPI_ACCESS_INSTANCES_REINSTALL
   POST_OPCODE = opcodes.OpInstanceReinstall
 
   def POST(self):
@@ -1442,6 +1500,7 @@ class R_2_instances_name_replace_disks(baserlib.OpcodeResource):
   """/2/instances/[instance_name]/replace-disks resource.
 
   """
+  POST_ACCESS = rapi.RAPI_ACCESS_INSTANCES_REPLACE_DISKS
   POST_OPCODE = opcodes.OpInstanceReplaceDisks
 
   def GetPostOpInput(self):
@@ -1488,6 +1547,7 @@ class R_2_instances_name_activate_disks(baserlib.OpcodeResource):
   """/2/instances/[instance_name]/activate-disks resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_INSTANCES_ACTIVATE_DISKS
   PUT_OPCODE = opcodes.OpInstanceActivateDisks
 
   def GetPutOpInput(self):
@@ -1506,6 +1566,7 @@ class R_2_instances_name_deactivate_disks(baserlib.OpcodeResource):
   """/2/instances/[instance_name]/deactivate-disks resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_INSTANCES_DEACTIVATE_DISKS
   PUT_OPCODE = opcodes.OpInstanceDeactivateDisks
 
   def GetPutOpInput(self):
@@ -1522,6 +1583,7 @@ class R_2_instances_name_recreate_disks(baserlib.OpcodeResource):
   """/2/instances/[instance_name]/recreate-disks resource.
 
   """
+  POST_ACCESS = rapi.RAPI_ACCESS_INSTANCES_RECREATE_DISKS
   POST_OPCODE = opcodes.OpInstanceRecreateDisks
 
   def GetPostOpInput(self):
@@ -1537,6 +1599,7 @@ class R_2_instances_name_prepare_export(baserlib.OpcodeResource):
   """/2/instances/[instance_name]/prepare-export resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_INSTANCES_EXPORT_PREPARE
   PUT_OPCODE = opcodes.OpBackupPrepare
 
   def GetPutOpInput(self):
@@ -1553,10 +1616,12 @@ class R_2_instances_name_export(baserlib.OpcodeResource):
   """/2/instances/[instance_name]/export resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_INSTANCES_EXPORT_CREATE
   PUT_OPCODE = opcodes.OpBackupExport
   PUT_RENAME = {
     "destination": "target_node",
     }
+  DELETE_ACCESS = rapi.RAPI_ACCESS_INSTANCES_EXPORT_REMOVE
   DELETE_OPCODE = opcodes.OpBackupRemove
 
   def GetPutOpInput(self):
@@ -1579,6 +1644,7 @@ class R_2_instances_name_migrate(baserlib.OpcodeResource):
   """/2/instances/[instance_name]/migrate resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_INSTANCES_MIGRATE
   PUT_OPCODE = opcodes.OpInstanceMigrate
 
   def GetPutOpInput(self):
@@ -1594,6 +1660,7 @@ class R_2_instances_name_failover(baserlib.OpcodeResource):
   """/2/instances/[instance_name]/failover resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_INSTANCES_FAILOVER
   PUT_OPCODE = opcodes.OpInstanceFailover
 
   def GetPutOpInput(self):
@@ -1609,6 +1676,7 @@ class R_2_instances_name_rename(baserlib.OpcodeResource):
   """/2/instances/[instance_name]/rename resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_INSTANCES_RENAME
   PUT_OPCODE = opcodes.OpInstanceRename
 
   def GetPutOpInput(self):
@@ -1624,6 +1692,7 @@ class R_2_instances_name_modify(baserlib.OpcodeResource):
   """/2/instances/[instance_name]/modify resource.
 
   """
+  PUT_ACCESS = rapi.RAPI_ACCESS_INSTANCES_MODIFY
   PUT_OPCODE = opcodes.OpInstanceSetParams
   PUT_RENAME = {
     "custom_beparams": "beparams",
@@ -1646,6 +1715,7 @@ class R_2_instances_name_disk_grow(baserlib.OpcodeResource):
   """/2/instances/[instance_name]/disk/[disk_index]/grow resource.
 
   """
+  POST_ACCESS = rapi.RAPI_ACCESS_INSTANCES_GROW_DISK
   POST_OPCODE = opcodes.OpInstanceGrowDisk
 
   def GetPostOpInput(self):
@@ -1662,7 +1732,7 @@ class R_2_instances_name_console(baserlib.ResourceBase):
   """/2/instances/[instance_name]/console resource.
 
   """
-  GET_ACCESS = [rapi.RAPI_ACCESS_WRITE, rapi.RAPI_ACCESS_READ]
+  GET_ACCESS = rapi.RAPI_ACCESS_INSTANCES_QUERY_CONSOLE
   GET_OPCODE = opcodes.OpInstanceConsole
 
   def GET(self):
@@ -1717,7 +1787,7 @@ class R_2_query(baserlib.ResourceBase):
 
   """
   # Results might contain sensitive information
-  GET_ACCESS = [rapi.RAPI_ACCESS_WRITE, rapi.RAPI_ACCESS_READ]
+  GET_ACCESS = rapi.RAPI_ACCESS_QUERY_ALL
   PUT_ACCESS = GET_ACCESS
   GET_OPCODE = opcodes.OpQuery
   PUT_OPCODE = opcodes.OpQuery
@@ -1761,6 +1831,7 @@ class R_2_query_fields(baserlib.ResourceBase):
   """/2/query/[resource]/fields resource.
 
   """
+  GET_ACCESS = rapi.RAPI_ACCESS_QUERY_ALL
   GET_OPCODE = opcodes.OpQueryFields
 
   def GET(self):
@@ -1787,6 +1858,9 @@ class _R_Tags(baserlib.OpcodeResource):
 
   """
   TAG_LEVEL = None
+  GET_ACCESS = rapi.RAPI_ACCESS_TAGS_GET
+  PUT_ACCESS = rapi.RAPI_ACCESS_TAGS_SET
+  DELETE_ACCESS = rapi.RAPI_ACCESS_TAGS_DELETE
   GET_OPCODE = opcodes.OpTagsGet
   PUT_OPCODE = opcodes.OpTagsSet
   DELETE_OPCODE = opcodes.OpTagsDel

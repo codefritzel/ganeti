@@ -884,6 +884,7 @@ class RADOSBlockDevice(base.BlockDev):
 
     self.driver, self.rbd_name = unique_id
     self.rbd_pool = params[constants.LDP_POOL]
+    self.rbd_access = params[constants.LDP_ACCESS]
 
     self.major = self.minor = None
     self.Attach()
@@ -953,6 +954,11 @@ class RADOSBlockDevice(base.BlockDev):
     """
     self.attached = False
 
+    # no block device mapping, if access is userspace
+    if self.rbd_access == "userspace":
+      self.attached = True
+      return True
+
     # Map the rbd volume to a block device under /dev
     self.dev_path = self._MapVolumeToBlockdev(self.unique_id)
 
@@ -974,10 +980,12 @@ class RADOSBlockDevice(base.BlockDev):
 
   @classmethod
   def MakeRbdCmd(cls, params, cmd):
-    """Add user id option to rbd command if configured.
+    """Add user id/namespace option to rbd command if configured.
     """
     if params.get(constants.RBD_USER_ID, ""):
       cmd.extend(["--id", str(params[constants.RBD_USER_ID])])
+    if params.get(constants.RBD_NAMESPACE, ""):
+      cmd.extend(["--namespace", str(params[constants.RBD_NAMESPACE])])
 
     return [constants.RBD_CMD] + cmd
 
@@ -1304,10 +1312,29 @@ class RADOSBlockDevice(base.BlockDev):
       uri = "rbd:" + self.rbd_pool + "/" + self.rbd_name
       if self.params.get(constants.RBD_USER_ID, ""):
         uri += ":id=%s" % self.params[constants.RBD_USER_ID]
+      if self.params.get(constants.RBD_NAMESPACE, ""):
+        uri += ":namespace=%s" % self.params[constants.RBD_NAMESPACE]
       return uri
     else:
       base.ThrowError("Hypervisor %s doesn't support RBD userspace access" %
                       hypervisor)
+
+  def SetInfo(self, text):
+    """Update metadata with info text.
+
+    """
+    # Replace invalid characters
+    text = re.sub("^[^A-Za-z0-9_+.]", "_", text)
+    text = re.sub("[^-A-Za-z0-9_+.]", "_", text)
+
+    key, _, val = text.partition("+")
+
+    rbd_pool = self.params[constants.LDP_POOL]
+    rbd_name = self.unique_id[1]
+    cmd = self.__class__.MakeRbdCmd(self.params, ["image-meta", "set",
+                                                  "-p", rbd_pool, rbd_name,
+                                                  key, val])
+    _CheckResult(utils.RunCmd(cmd))
 
 
 def _VerifyDiskType(dev_type):

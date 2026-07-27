@@ -113,6 +113,15 @@ iallocatorsdir = $(pkglibdir)/iallocators
 pytoolsdir = $(pkgpythondir)/tools
 docdir = $(versiondir)$(datadir)/doc/$(PACKAGE)
 ifupdir = $(sysconfdir)/ganeti
+NET_MODES = bridged openvswitch routed
+
+NET_SCRIPT_LIST = \
+	tools/net-bridged-down \
+	tools/net-bridged-up \
+	tools/net-openvswitch-down \
+	tools/net-openvswitch-up \
+	tools/net-routed-down \
+	tools/net-routed-up
 
 if USE_BACKUP_DIR
 backup_dir = $(BACKUP_DIR)
@@ -123,6 +132,9 @@ endif
 SYMLINK_TARGET_DIRS = \
 	$(sysconfdir)/ganeti \
 	$(libdir)/ganeti/iallocators \
+	$(libdir)/ganeti/network/bridged \
+	$(libdir)/ganeti/network/openvswitch \
+	$(libdir)/ganeti/network/routed \
 	$(libdir)/ganeti/tools \
 	$(prefix)/share/ganeti \
 	$(BINDIR) \
@@ -269,8 +281,13 @@ DIRS = \
 
 PYTHON_TEST_DIRS = \
 	test/py/unit \
+	test/py/unit/cmdlib \
+	test/py/unit/confd \
+	test/py/unit/http \
 	test/py/unit/hypervisor \
 	test/py/unit/hypervisor/hv_kvm \
+	test/py/unit/server \
+	test/py/unit/storage \
 	test/py/unit/test_data \
 	test/py/integration
 
@@ -405,14 +422,7 @@ DIRCHECK_EXCLUDE = \
 	doc/html/_* \
 	doc/man-html/_* \
 	tools/shebang \
-	autom4te.cache \
-	.devcontainer \
-	.idea \
-	.idea/* \
-	.vscode \
-	.vscode/* \
-	.github \
-	.github/workflows
+	autom4te.cache 
 
 # some helper vars
 COVERAGE_DIR = doc/coverage
@@ -461,8 +471,8 @@ CLEANFILES = \
 	lib/_generated_rpc.py \
 	$(man_MANS) \
 	$(manhtml) \
-	tools/kvm-ifup \
-	tools/kvm-ifup-os \
+	tools/kvm-nic-setup \
+	$(NET_SCRIPT_LIST) \
 	tools/xen-ifup-os \
 	tools/vif-ganeti \
 	tools/vif-ganeti-metad \
@@ -547,7 +557,6 @@ BUILT_EXAMPLES = \
 	doc/examples/systemd/ganeti-wconfd.service
 
 nodist_ifup_SCRIPTS = \
-	tools/kvm-ifup-os \
 	tools/xen-ifup-os
 
 nodist_pkgpython_PYTHON = \
@@ -574,7 +583,6 @@ noinst_PYTHON = \
 
 pkgpython_PYTHON = \
 	lib/__init__.py \
-	lib/asyncnotifier.py \
 	lib/backend.py \
 	lib/bootstrap.py \
 	lib/cli.py \
@@ -797,6 +805,7 @@ docinput = \
 	doc/design-2.16.rst \
 	doc/design-3.0.rst \
 	doc/design-3.1.rst \
+	doc/design-3.2.rst \
 	doc/design-allocation-efficiency.rst \
 	doc/design-autorepair.rst \
 	doc/design-bulk-create.rst \
@@ -849,9 +858,11 @@ docinput = \
 	doc/design-query-splitting.rst \
 	doc/design-query2.rst \
 	doc/design-query-splitting.rst \
+	doc/design-q35.rst \
 	doc/design-qemu-blockdev.rst \
 	doc/design-reason-trail.rst \
 	doc/design-repaird.rst \
+	doc/design-replace-asyncore.rst \
 	doc/design-reservations.rst \
 	doc/design-resource-model.rst \
 	doc/design-restricted-commands.rst \
@@ -868,6 +879,7 @@ docinput = \
 	doc/dev-codestyle.rst \
 	doc/glossary.rst \
 	doc/hooks.rst \
+	doc/network.rst \
 	doc/iallocator.rst \
 	doc/index.rst \
 	doc/install.rst \
@@ -1590,13 +1602,14 @@ pkglib_python_basenames = \
 
 myexeclib_SCRIPTS = \
 	daemons/daemon-util \
-	tools/kvm-ifup \
-	tools/kvm-ifup-os \
+	tools/kvm-nic-setup \
 	tools/xen-ifup-os \
 	tools/vif-ganeti \
 	tools/vif-ganeti-metad \
 	tools/net-common \
 	$(HS_MYEXECLIB_PROGS)
+
+nodist_noinst_SCRIPTS = $(NET_SCRIPT_LIST)
 
 # compute the basenames of the myexeclib_scripts
 myexeclib_scripts_basenames = $(notdir $(myexeclib_SCRIPTS))
@@ -1631,8 +1644,8 @@ EXTRA_DIST += \
 	devel/build_chroot \
 	devel/upload \
 	devel/webserver \
-	tools/kvm-ifup.in \
-	tools/ifup-os.in \
+	tools/kvm-nic-setup.in \
+	$(NET_SCRIPT_LIST:=.in) \
 	tools/vif-ganeti.in \
 	tools/vif-ganeti-metad.in \
 	tools/net-common.in \
@@ -1866,6 +1879,8 @@ TEST_FILES = \
 	test/data/kvm_5.2.0_help.txt \
 	test/data/kvm_current_help.txt \
 	test/data/kvm_6.0.0_machine.txt \
+	test/data/kvm_10.2_help.txt \
+	test/data/kvm_10.2_machine.txt \
 	test/data/kvm_runtime.json \
 	test/data/lvs_lv.txt \
 	test/data/NEWS_OK.txt \
@@ -1944,7 +1959,6 @@ python_tests_legacy = \
 	test/py/legacy/cmdlib/test_unittest.py \
 	test/py/legacy/cfgupgrade_unittest.py \
 	test/py/legacy/docs_unittest.py \
-	test/py/legacy/ganeti.asyncnotifier_unittest.py \
 	test/py/legacy/ganeti.backend_unittest-runasroot.py \
 	test/py/legacy/ganeti.backend_unittest.py \
 	test/py/legacy/ganeti.bootstrap_unittest.py \
@@ -1954,14 +1968,11 @@ python_tests_legacy = \
 	test/py/legacy/ganeti.client.gnt_instance_unittest.py \
 	test/py/legacy/ganeti.client.gnt_job_unittest.py \
 	test/py/legacy/ganeti.compat_unittest.py \
-	test/py/legacy/ganeti.confd.client_unittest.py \
 	test/py/legacy/ganeti.config_unittest.py \
 	test/py/legacy/ganeti.constants_unittest.py \
-	test/py/legacy/ganeti.daemon_unittest.py \
 	test/py/legacy/ganeti.errors_unittest.py \
 	test/py/legacy/ganeti.hooks_unittest.py \
 	test/py/legacy/ganeti.ht_unittest.py \
-	test/py/legacy/ganeti.http_unittest.py \
 	test/py/legacy/ganeti.hypervisor.hv_chroot_unittest.py \
 	test/py/legacy/ganeti.hypervisor.hv_fake_unittest.py \
 	test/py/legacy/ganeti.hypervisor.hv_kvm_unittest.py \
@@ -2031,8 +2042,18 @@ python_tests_legacy = \
 	test/py/legacy/tempfile_fork_unittest.py
 
 python_tests_unit = \
+	test/py/unit/cmdlib/test_instance_storage_drbd_wait.py \
+	test/py/unit/confd/test_client.py \
+	test/py/unit/test_daemon.py \
 	test/py/unit/hypervisor/hv_kvm/test_monitor.py \
-	test/py/unit/hypervisor/hv_kvm/test_bus_manager.py
+	test/py/unit/hypervisor/hv_kvm/test_bus_manager.py \
+	test/py/unit/hypervisor/hv_kvm/test_instance_info.py \
+	test/py/unit/hypervisor/hv_kvm/test_q35.py \
+	test/py/unit/http/test_auth.py \
+	test/py/unit/http/test_server.py \
+	test/py/unit/http/test_ssl.py \
+	test/py/unit/server/test_rapi.py \
+	test/py/unit/storage/test_drbd_grow.py
 
 python_tests = $(python_tests_integration) $(python_tests_legacy) $(python_tests_unit)
 
@@ -2203,12 +2224,12 @@ test/py/ganeti-cleaner_unittest.bash: daemons/ganeti-cleaner
 
 test/py/bash_completion.bash: doc/examples/bash_completion-debug
 
-tools/kvm-ifup: tools/kvm-ifup.in $(REPLACE_VARS_SED)
+tools/kvm-nic-setup: tools/kvm-nic-setup.in $(REPLACE_VARS_SED)
 	sed -f $(REPLACE_VARS_SED) < $< > $@
 	chmod +x $@
 
-tools/kvm-ifup-os: tools/ifup-os.in $(REPLACE_VARS_SED)
-	sed -f $(REPLACE_VARS_SED) -e "s/ifup-os:/kvm-ifup-os:/" < $< > $@
+$(NET_SCRIPT_LIST): tools/%: tools/%.in $(REPLACE_VARS_SED)
+	sed -f $(REPLACE_VARS_SED) < $< > $@
 	chmod +x $@
 
 tools/xen-ifup-os: tools/ifup-os.in $(REPLACE_VARS_SED)
@@ -2618,7 +2639,7 @@ ganeti:
 .PHONY: check-dirs
 check-dirs: $(GENERATED_FILES)
 	@set -e; \
-	find . -type d \( -name . -o -name .git -prune -o -print \) | { \
+	find . -type d -not -path '*/.*' -a -not -path '.' -a -not -path '*/__pycache__' -print | { \
 	  error=; \
 	  while read dir; do \
 	    case "$$dir" in \
@@ -2920,6 +2941,15 @@ install-exec-local:
 	for prog in $(myexeclib_scripts_basenames); do \
 	  $(LN_S) -f $(defaultversiondir)$(libdir)/ganeti/$$prog $(DESTDIR)$(libdir)/ganeti/$$prog; \
 	done
+	for mode in $(NET_MODES); do \
+	  @mkdir_p@ "$(DESTDIR)$(pkglibdir)/network/$$mode"; \
+	  $(INSTALL_SCRIPT) tools/net-$$mode-down "$(DESTDIR)$(pkglibdir)/network/$$mode/down"; \
+	  $(INSTALL_SCRIPT) tools/net-$$mode-up "$(DESTDIR)$(pkglibdir)/network/$$mode/up"; \
+	  $(LN_S) -f $(defaultversiondir)$(libdir)/ganeti/network/$$mode/down $(DESTDIR)$(libdir)/ganeti/network/$$mode/down; \
+	  $(LN_S) -f $(defaultversiondir)$(libdir)/ganeti/network/$$mode/up $(DESTDIR)$(libdir)/ganeti/network/$$mode/up; \
+	  @mkdir_p@ "$(DESTDIR)$(sysconfdir)/ganeti/network/$$mode"; \
+	done
+	@mkdir_p@ "$(DESTDIR)$(sysconfdir)/ganeti/network/ext"
 if INSTALL_SYMLINKS
 	$(LN_S) -f $(versionedsharedir) $(DESTDIR)$(sysconfdir)/ganeti/share
 	$(LN_S) -f $(versiondir) $(DESTDIR)$(sysconfdir)/ganeti/lib
@@ -2979,7 +3009,7 @@ endif
 
 coverage: $(COVERAGE_TESTS)
 
-test/py/docs_unittest.py: $(gnt_scripts)
+test/py/legacy/docs_unittest.py: $(gnt_scripts)
 
 .PHONY: py-coverage
 py-coverage: $(GENERATED_FILES) $(python_tests)

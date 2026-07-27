@@ -852,12 +852,16 @@ B).
 Network Management
 ------------------
 
+See :doc:`network` for the full reference on NIC modes, the ``up``/``down``
+dispatcher scripts, user overrides under ``@SYSCONFDIR@/ganeti/network/``,
+and the environment passed to network scripts.
+
 Ganeti used to describe NICs of an Instance with an IP, a MAC, a connectivity
 link and mode. This had three major shortcomings:
 
   * there was no easy way to assign a unique IP to an instance
   * network info (subnet, gateway, domain, etc.) was not available on target
-    node (kvm-ifup, hooks, etc)
+    node (network scripts, hooks, etc; see :doc:`network`)
   * one should explicitly pass L2 info (mode, and link) to every NIC
 
 Plus there was no easy way to get the current networking overview (which
@@ -883,8 +887,8 @@ pass `ip=pool,network=test` and will:
 2. Inherit the connectivity mode and link of the network's netparams
 3. NIC will obtain the MAC prefix of the network
 4. All network related info will be available as environment variables in
-   kvm-ifup scripts and hooks, so that they can dynamically manage all
-   networking-related setup on the host.
+   custom network scripts (see :doc:`network`) and hooks, so that they can
+   dynamically manage all networking-related setup on the host.
 
 Hands on with gnt-network
 +++++++++++++++++++++++++
@@ -948,7 +952,8 @@ external services are needed:
 4. A dynamic DNS server
 
 These components must be configured dynamically and on a per NIC basis.
-The way to do this is by using custom kvm-ifup scripts and hooks.
+The way to do this is by using custom network scripts (see :doc:`network`)
+and hooks.
 
 Node operations
 ---------------
@@ -1611,6 +1616,77 @@ NIC types like ``e1000``. Please check the :manpage:`gnt-instance(8)` man page f
 the parameters ``disk_type`` and ``nic_type`` for all possible values. The setting
 always applies to *all* disks and NICs for a given instance.
 
+KVM machine type and guest network interface naming
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Ganeti supports two QEMU machine types for KVM instances, selectable via
+``machine_version``:
+
+- ``pc-i440fx-*`` (the legacy PCI-based ``pc`` family).
+- ``pc-q35-*`` (the modern PCIe-based Q35 + ICH9 chipset).
+
+For new instances we recommend ``pc-q35-*``. It is the upstream-recommended
+chipset for new x86 guests and it enables predictable
+``eno<N>`` interface naming in systemd guests, which makes it much easier
+to write stable in-guest network configuration.
+
+Predictable interface naming
+............................
+
+On q35, Ganeti tags each NIC's PCIe slot with an ACPI ``acpi-index``
+attribute. systemd-udev uses that attribute via the ``net_id`` builtin to
+assign an ``eno<N>`` name. The mapping is:
+
+  NIC enumeration position (0-based) + 1 → ``eno<N>``
+
+So a freshly created q35 instance with three NICs gets ``eno1``, ``eno2``
+and ``eno3`` inside the guest, mirroring the order Ganeti lists them in.
+
+On ``pc-i440fx-*``, this method has no effect, so systemd falls back to its
+PCI-slot-based ``ens<slot>`` form. The exact name therefore depends on
+the PCI slot Ganeti allocated, and may shift across machine versions.
+
+Setting ``net.ifnames=0`` on the guest kernel command line disables
+predictable naming entirely; the guest then gets ``eth0``, ``eth1`` ...
+regardless of chipset. This is most often useful for legacy images.
+
+Custom QEMU options on q35 (``kvm_extra``)
+..........................................
+
+PCI devices that Ganeti adds itself (NICs, disks, balloon, USB controller,
+SCSI controller, virtio-serial channels) live at known addresses on q35's
+PCIe root complex so they don't collide with each other:
+cold-boot fixed devices share slot ``0x02`` as functions of one
+multifunction group, and Ganeti pre-allocates a pool of empty
+``pcie-root-port``\ s at slots ``0x03..0x1a`` to host NICs and disks
+(the per-instance hard cap is 24 leaf devices, one per pool slot).
+Ganeti has no visibility into devices added via the ``kvm_extra`` hvparam,
+so on q35 a user-supplied ``-device`` line that lacks an explicit ``bus=``
+and ``addr=`` may be auto-placed by QEMU onto a slot Ganeti has already
+reserved, and the instance will fail to start with a ``slot N function 0
+not available`` error.
+
+When passing ``-device`` lines via ``kvm_extra`` on a q35 instance, attach
+the device to a Ganeti-managed bus that doesn't share slots with
+``pcie.0``: ``bus=usb.0`` for USB devices, ``bus=scsi.0`` for SCSI
+devices, or ``bus=rp<N>`` for an unused root-port from Ganeti's pool
+(any slot the instance hasn't already filled with a NIC or disk).
+Hot-add via ``gnt-instance modify`` is preferred for NICs/disks since
+Ganeti tracks pool occupancy and won't hand out a slot that you've
+manually claimed.
+
+This caveat does not apply to ``pc-i440fx-*``: QEMU's auto-placement on
+the flat ``pci.0`` bus does not collide with Ganeti's allocations there.
+
+Sound cards (``soundhw``)
+.........................
+
+On q35, only ``soundhw=ac97`` and ``soundhw=hda`` are supported; both
+are pinned into Ganeti's static-device multifunction group on
+``pcie.0``. Any other value (``es1370``, ``sb16``, ``adlib``, ``gus``,
+``cs4231a``, ``pcspk``, ...) is rejected at validation time. Use a
+``pc-i440fx-*`` ``machine_version`` if you need one of those models.
+
 Configuring Storage
 -------------------
 
@@ -1628,6 +1704,52 @@ to these parameters will not affect running instances.
   $ gnt-cluster modify --disk-parameters drbd:disk-barriers=n,protocol=C
   $ gnt-cluster modify --disk-parameters drbd:dynamic-resync=true,c-plan-ahead=20,c-min-rate=104857600,c-max-rate=1073741824
   $ gnt-cluster modify --disk-parameters drbd:net-custom='--max-buffers=16000 --max-epoch-size=16000'
+
+Overriding DRBD split-brain resolution
+++++++++++++++++++++++++++++++++++++++
+
+Ganeti's DRBD backend ships with automatic split-brain resolution enabled:
+``--after-sb-0pri discard-zero-changes`` and ``--after-sb-1pri consensus``.
+The ``consensus`` policy can silently discard one side of a split-brain in
+the one-primary case, which in some failure scenarios amounts to silent
+data loss (see GitHub issue #846).
+
+Operators who prefer manual intervention can override either policy via
+the existing ``net-custom`` disk parameter. Because Ganeti appends
+``net-custom`` at the end of the generated ``drbdsetup`` command line,
+the last occurrence of each flag wins, so an override simply replaces
+the default::
+
+  $ gnt-cluster modify --disk-parameters drbd:net-custom='--after-sb-1pri disconnect'
+
+The override takes effect the next time the DRBD network layer is
+(re-)established for a given disk - e.g. on instance restart, secondary
+re-add, or migration.
+
+DRBD handshake check on disk assembly
++++++++++++++++++++++++++++++++++++++
+
+When activating disks for a DRBD-backed instance (for example during
+``gnt-instance startup``, ``gnt-instance reboot``, ``gnt-instance
+activate-disks``, or ``gnt-instance grow-disk``), Ganeti waits for the
+DRBD handshake to complete on every reachable secondary before
+promoting the primary. If the handshake does not complete on an online
+secondary, the operation fails instead of silently promoting a primary
+in ``WFConnection`` state - this avoids a potential data-loss scenario
+after an instance ran in DRBD diskless mode on its primary node (e.g.
+after a failure in the storage subsystem).
+
+To override the check - accepting the risk of split-brain / data loss:
+
+* ``gnt-instance startup --force``
+* ``gnt-instance reboot --ignore-secondaries``
+* Mark a persistently unreachable secondary as offline with
+  ``gnt-node modify --offline=yes <node>`` - offline secondaries are
+  always skipped (with a warning), independent of the flags above.
+
+``gnt-instance failover``, ``gnt-instance migrate`` and
+``gnt-instance move`` already treat secondary handshake failures as
+non-fatal, matching their existing semantics.
 
 Userspace vs. Kernelspace
 +++++++++++++++++++++++++
